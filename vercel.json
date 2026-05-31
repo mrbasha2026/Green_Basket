@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/jobs/import-google-sheet",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
