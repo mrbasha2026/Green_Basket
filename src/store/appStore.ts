@@ -26,6 +26,15 @@ export const useAppStore = create<AppState>()(
         set({ theme: next })
       },
     }),
-    { name: 'greenbasket-app-store' }
+    {
+      name: 'greenbasket-app-store',
+      onRehydrateStorage: () => (state) => {
+        if (state?.theme === 'dark') {
+          document.documentElement.classList.add('dark')
+        } else {
+          document.documentElement.classList.remove('dark')
+        }
+      },
+    }
   )
 )

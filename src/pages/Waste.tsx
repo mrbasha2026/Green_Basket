@@ -62,6 +62,16 @@ export default function Waste() {
     monthlySummary.slice(0, 5).map(r => ({ name: r.name, value: r.waste_kg })), [monthlySummary]
   )
 
+  const [filterProduct, setFilterProduct] = useState('')
+  const [filterSource, setFilterSource] = useState('')
+
+  const filteredWaste = useMemo(() => {
+    let data = wasteLog ?? []
+    if (filterProduct) data = data.filter(w => w.product_id === filterProduct)
+    if (filterSource) data = data.filter(w => w.source === filterSource)
+    return data
+  }, [wasteLog, filterProduct, filterSource])
+
   const columns = useMemo<ColumnDef<WasteLog>[]>(() => [
     { accessorKey: 'date', header: 'التاريخ', cell: ({ getValue }) => formatDate(getValue() as string) },
     { accessorFn: r => r.product?.name_ar ?? '', id: 'product', header: 'الصنف' },
@@ -166,11 +176,32 @@ export default function Waste() {
         <CardHeader>
           <CardTitle className="text-base">سجل الهدر — {monthName(selectedMonth)} {selectedYear}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+            <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل الأصناف</SelectItem>
+                {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="كل المصادر" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل المصادر</SelectItem>
+                <SelectItem value="web">يدوي</SelectItem>
+                <SelectItem value="google_sheet">Sheets</SelectItem>
+              </SelectContent>
+            </Select>
+            {(filterProduct || filterSource) && (
+              <Button variant="ghost" size="sm" onClick={() => { setFilterProduct(''); setFilterSource('') }}
+                className="text-muted-foreground">مسح</Button>
+            )}
+          </div>
           {isLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : (
-            <DataTable data={wasteLog ?? []} columns={columns} searchPlaceholder="بحث..." />
+            <DataTable data={filteredWaste} columns={columns} searchPlaceholder="بحث..." />
           )}
         </CardContent>
       </Card>

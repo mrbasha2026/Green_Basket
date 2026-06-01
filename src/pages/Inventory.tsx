@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { useInventoryDaily } from '@/hooks/useInventory'
@@ -14,9 +15,18 @@ import { AlertTriangle } from 'lucide-react'
 
 export default function Inventory() {
   const [selectedDate, setSelectedDate] = useState(todayISO())
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterLowStock, setFilterLowStock] = useState(false)
   const { data: inventory, isLoading } = useInventoryDaily(selectedDate)
 
   const lowStock = useMemo(() => inventory?.filter(i => i.closing_stock_kg < 10) ?? [], [inventory])
+
+  const filteredInventory = useMemo(() => {
+    let data = inventory ?? []
+    if (filterCategory) data = data.filter(i => i.product?.category === filterCategory)
+    if (filterLowStock) data = data.filter(i => i.closing_stock_kg < 10)
+    return data
+  }, [inventory, filterCategory, filterLowStock])
 
   const columns = useMemo<ColumnDef<InventoryDaily>[]>(() => [
     { accessorFn: r => r.product?.name_ar ?? '', id: 'product', header: 'الصنف' },
@@ -116,12 +126,36 @@ export default function Inventory() {
         <CardHeader>
           <CardTitle className="text-base">المخزون اليومي — {formatDate(selectedDate)}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+            <Select value={filterCategory} onValueChange={v => setFilterCategory(v ?? '')}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="كل الفئات" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل الفئات</SelectItem>
+                <SelectItem value="خضار">خضار</SelectItem>
+                <SelectItem value="فاكهة">فاكهة</SelectItem>
+                <SelectItem value="أعشاب">أعشاب</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant={filterLowStock ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilterLowStock(v => !v)}
+              className="gap-2"
+            >
+              ⚠️ مخزون منخفض فقط
+            </Button>
+            {(filterCategory || filterLowStock) && (
+              <Button variant="ghost" size="sm" onClick={() => { setFilterCategory(''); setFilterLowStock(false) }}
+                className="text-muted-foreground">مسح</Button>
+            )}
+          </div>
           {isLoading ? (
             <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : (
             <DataTable
-              data={inventory ?? []}
+              data={filteredInventory}
               columns={columns}
               searchPlaceholder="بحث عن صنف..."
               rowClassName={(row) => row.closing_stock_kg < 10 ? 'bg-danger/5' : ''}

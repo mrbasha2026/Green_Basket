@@ -30,6 +30,10 @@ export default function Sales() {
   const [selectedDate, setSelectedDate] = useState(todayISO())
   const [rows, setRows] = useState<SaleFormRow[]>([emptyRow()])
   const [filterCustomer, setFilterCustomer] = useState('')
+  const [filterProduct, setFilterProduct] = useState('')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterSource, setFilterSource] = useState('')
 
   const { data: products } = useProducts()
   const { data: customers } = useCustomers()
@@ -97,6 +101,21 @@ export default function Sales() {
     },
     { accessorKey: 'source', header: 'المصدر', cell: ({ getValue }) => getValue() === 'web' ? 'يدوي' : 'Sheets' },
   ], [])
+
+  const filteredSales = useMemo(() => {
+    let data = sales ?? []
+    if (filterProduct) data = data.filter(s => s.product_id === filterProduct)
+    if (filterDateFrom) data = data.filter(s => s.date >= filterDateFrom)
+    if (filterDateTo) data = data.filter(s => s.date <= filterDateTo)
+    if (filterSource) data = data.filter(s => s.source === filterSource)
+    return data
+  }, [sales, filterProduct, filterDateFrom, filterDateTo, filterSource])
+
+  function clearFilters() {
+    setFilterCustomer(''); setFilterProduct(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterSource('')
+  }
+
+  const hasFilters = filterCustomer || filterProduct || filterDateFrom || filterDateTo || filterSource
 
   return (
     <div className="space-y-6">
@@ -242,26 +261,52 @@ export default function Sales() {
       {/* History */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>سجل المبيعات</span>
+          <CardTitle className="text-base">سجل المبيعات</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
             <Select value={filterCustomer} onValueChange={v => setFilterCustomer(v ?? '')}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="كل العملاء" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="كل العملاء" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="">كل العملاء</SelectItem>
-                {customers?.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>
-                ))}
+                {customers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>)}
               </SelectContent>
             </Select>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+            <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
+              <SelectTrigger><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل الأصناف</SelectItem>
+                {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
+              <SelectTrigger><SelectValue placeholder="كل المصادر" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل المصادر</SelectItem>
+                <SelectItem value="web">يدوي</SelectItem>
+                <SelectItem value="google_sheet">Sheets</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-1">
+              <Label className="text-xs shrink-0">من</Label>
+              <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="text-xs h-9" dir="ltr" />
+            </div>
+            <div className="flex items-center gap-1">
+              <Label className="text-xs shrink-0">إلى</Label>
+              <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="text-xs h-9" dir="ltr" />
+            </div>
+            {hasFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
+                مسح الفلاتر
+              </Button>
+            )}
+          </div>
+
           {isLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : (
-            <DataTable data={sales ?? []} columns={columns} searchPlaceholder="بحث في المبيعات..." />
+            <DataTable data={filteredSales} columns={columns} searchPlaceholder="بحث في المبيعات..." />
           )}
         </CardContent>
       </Card>

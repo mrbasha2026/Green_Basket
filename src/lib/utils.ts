@@ -8,12 +8,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-const numFormat = new Intl.NumberFormat('ar-SA', {
+const numFormat = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 })
 
-const intFormat = new Intl.NumberFormat('ar-SA', {
+const intFormat = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 })
@@ -31,7 +31,7 @@ const RIYADH_TZ = 'Asia/Riyadh'
 export function formatDate(date: string | Date): string {
   const d = typeof date === 'string' ? parseISO(date) : date
   const riyadh = toZonedTime(d, RIYADH_TZ)
-  return format(riyadh, 'dd/MM/yyyy', { locale: ar })
+  return format(riyadh, 'dd/MM/yyyy')
 }
 
 export function formatDateFull(date: string | Date): string {

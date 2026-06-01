@@ -28,6 +28,8 @@ export default function Purchases() {
   const [selectedDate, setSelectedDate] = useState(todayISO())
   const [rows, setRows] = useState<PurchaseFormRow[]>([emptyRow()])
   const [filterDate, setFilterDate] = useState('')
+  const [filterProduct, setFilterProduct] = useState('')
+  const [filterSource, setFilterSource] = useState('')
 
   const { data: products } = useProducts()
   const { data: purchases, isLoading } = usePurchases(filterDate || undefined)
@@ -74,6 +76,13 @@ export default function Purchases() {
       toast.error('حدث خطأ أثناء الحفظ')
     }
   }
+
+  const filteredPurchases = useMemo(() => {
+    let data = purchases ?? []
+    if (filterProduct) data = data.filter(p => p.product_id === filterProduct)
+    if (filterSource) data = data.filter(p => p.source === filterSource)
+    return data
+  }, [purchases, filterProduct, filterSource])
 
   // History columns
   const columns = useMemo<ColumnDef<Purchase>[]>(() => [
@@ -237,32 +246,39 @@ export default function Purchases() {
       {/* History */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>سجل المشتريات</span>
-            <div className="flex items-center gap-2">
-              <Label className="text-sm font-normal">فلتر التاريخ:</Label>
-              <Input
-                type="date"
-                value={filterDate}
-                onChange={e => setFilterDate(e.target.value)}
-                className="w-40 text-sm"
-                dir="ltr"
-              />
-              {filterDate && (
-                <Button variant="ghost" size="sm" onClick={() => setFilterDate('')}>مسح</Button>
-              )}
-            </div>
-          </CardTitle>
+          <CardTitle className="text-base">سجل المشتريات</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+            <div className="flex items-center gap-1">
+              <Label className="text-xs shrink-0">التاريخ</Label>
+              <Input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="text-xs h-9" dir="ltr" />
+            </div>
+            <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
+              <SelectTrigger><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل الأصناف</SelectItem>
+                {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
+              <SelectTrigger><SelectValue placeholder="كل المصادر" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">كل المصادر</SelectItem>
+                <SelectItem value="web">يدوي</SelectItem>
+                <SelectItem value="google_sheet">Sheets</SelectItem>
+              </SelectContent>
+            </Select>
+            {(filterDate || filterProduct || filterSource) && (
+              <Button variant="ghost" size="sm" onClick={() => { setFilterDate(''); setFilterProduct(''); setFilterSource('') }}
+                className="text-muted-foreground">مسح الفلاتر</Button>
+            )}
+          </div>
           {isLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : (
-            <DataTable
-              data={purchases ?? []}
-              columns={columns}
-              searchPlaceholder="بحث في المشتريات..."
-            />
+            <DataTable data={filteredPurchases} columns={columns} searchPlaceholder="بحث في المشتريات..." />
           )}
         </CardContent>
       </Card>

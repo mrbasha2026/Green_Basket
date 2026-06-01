@@ -4,6 +4,16 @@ import {
 } from 'recharts'
 import { formatNumber } from '@/lib/utils'
 
+const TOOLTIP_STYLE = {
+  direction: 'rtl' as const,
+  fontFamily: 'Noto Sans Arabic, sans-serif',
+  fontSize: 13,
+  borderRadius: 8,
+  border: '1px solid #e2e8f0',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  padding: '8px 12px',
+}
+
 interface BarChartProps {
   data: Record<string, unknown>[]
   bars: { dataKey: string; name: string; color: string }[]
@@ -18,27 +28,62 @@ export function BarChart({ data, bars, xAxisKey, height = 300, layout = 'horizon
       <ReBarChart
         data={data}
         layout={layout}
-        margin={{ top: 5, right: 30, left: 20, bottom: layout === 'vertical' ? 5 : 40 }}
+        margin={layout === 'vertical'
+          ? { top: 5, right: 20, left: 10, bottom: 5 }
+          : { top: 10, right: 10, left: 10, bottom: 45 }
+        }
       >
-        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.15)" />
         {layout === 'horizontal' ? (
           <>
-            <XAxis dataKey={xAxisKey} tick={{ fontSize: 11 }} angle={-20} textAnchor="end" />
-            <YAxis tickFormatter={(v) => formatNumber(v as number)} tick={{ fontSize: 11 }} />
+            <XAxis
+              dataKey={xAxisKey}
+              tick={{ fontSize: 11, fill: '#64748b' }}
+              angle={-25}
+              textAnchor="end"
+              interval={0}
+              axisLine={{ stroke: '#e2e8f0' }}
+              tickLine={false}
+            />
+            <YAxis
+              tickFormatter={(v) => formatNumber(v as number)}
+              tick={{ fontSize: 11, fill: '#64748b' }}
+              axisLine={false}
+              tickLine={false}
+              width={70}
+            />
           </>
         ) : (
           <>
-            <XAxis type="number" tickFormatter={(v) => formatNumber(v as number)} tick={{ fontSize: 11 }} />
-            <YAxis type="category" dataKey={xAxisKey} tick={{ fontSize: 11 }} width={120} />
+            <XAxis
+              type="number"
+              tickFormatter={(v) => formatNumber(v as number)}
+              tick={{ fontSize: 11, fill: '#64748b' }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey={xAxisKey}
+              tick={{ fontSize: 11, fill: '#64748b' }}
+              axisLine={{ stroke: '#e2e8f0' }}
+              tickLine={false}
+              width={110}
+            />
           </>
         )}
         <Tooltip
-          formatter={(v: unknown) => formatNumber(v as number)}
-          contentStyle={{ direction: 'rtl', fontFamily: 'Noto Sans Arabic, sans-serif' }}
+          formatter={(v: unknown, name: unknown) => [formatNumber(v as number), name]}
+          contentStyle={TOOLTIP_STYLE}
+          cursor={{ fill: 'rgba(100,116,139,0.06)' }}
         />
-        <Legend wrapperStyle={{ direction: 'rtl' }} />
+        <Legend
+          wrapperStyle={{ direction: 'rtl', fontSize: 13, paddingTop: 8 }}
+          iconType="circle"
+          iconSize={8}
+        />
         {bars.map(({ dataKey, name, color }) => (
-          <Bar key={dataKey} dataKey={dataKey} name={name} fill={color} radius={[4, 4, 0, 0]} />
+          <Bar key={dataKey} dataKey={dataKey} name={name} fill={color} radius={[4, 4, 0, 0]} maxBarSize={48} />
         ))}
       </ReBarChart>
     </ResponsiveContainer>
