@@ -8,6 +8,8 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// ─── Google Sheets ────────────────────────────────────────────────────────────
+
 async function getSheets(spreadsheetId: string) {
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY!.replace(/\\n/g, '\n')
   const auth = new google.auth.GoogleAuth({
@@ -37,50 +39,49 @@ async function getSheets(spreadsheetId: string) {
   return results
 }
 
-async function findProductId(name: string): Promise<string | null> {
-  const trimmed = name.toUpperCase().trim()
-  const { data } = await supabaseAdmin
-    .from('product_aliases')
-    .select('product_id')
-    .ilike('alias', trimmed)
-    .single()
-  if (data) return data.product_id
+// ─── Cache: تحميل كل البيانات مرة واحدة ──────────────────────────────────────
 
-  const { data: product } = await supabaseAdmin
-    .from('products')
-    .select('id')
-    .ilike('name_en', trimmed)
-    .single()
-  return product?.id ?? null
+interface SyncCache {
+  // alias (uppercase) → product_id
+  aliasMap: Map<string, string>
+  // sheet_name → customer_id
+  sheetMap: Map<string, string>
 }
 
-async function findOrCreateCustomer(sheetName: string): Promise<string | null> {
-  const { data: mapping } = await supabaseAdmin
-    .from('customer_sheet_mapping')
-    .select('customer_id')
-    .eq('sheet_name', sheetName)
-    .single()
-  if (mapping) return mapping.customer_id
+async function buildCache(): Promise<SyncCache> {
+  const [aliasRes, productRes, sheetRes] = await Promise.all([
+    supabaseAdmin.from('product_aliases').select('alias, product_id'),
+    supabaseAdmin.from('products').select('id, name_en').not('name_en', 'is', null),
+    supabaseAdmin.from('customer_sheet_mapping').select('sheet_name, customer_id'),
+  ])
 
-  const { data: customer } = await supabaseAdmin
-    .from('customers')
-    .select('id')
-    .eq('name_ar', sheetName)
-    .single()
-  if (customer) {
-    await supabaseAdmin.from('customer_sheet_mapping').insert({ sheet_name: sheetName, customer_id: customer.id })
-    return customer.id
+  const aliasMap = new Map<string, string>()
+
+  for (const row of aliasRes.data ?? []) {
+    aliasMap.set(row.alias.toUpperCase().trim(), row.product_id)
+  }
+  for (const row of productRes.data ?? []) {
+    if (row.name_en) aliasMap.set(row.name_en.toUpperCase().trim(), row.id)
   }
 
-  await supabaseAdmin.from('sync_pending_review').insert({ type: 'customer', raw_name: sheetName, status: 'pending' })
-  return null
+  const sheetMap = new Map<string, string>()
+  for (const row of sheetRes.data ?? []) {
+    sheetMap.set(row.sheet_name, row.customer_id)
+  }
+
+  return { aliasMap, sheetMap }
 }
 
-async function importSales(records: SaleRecord[], customerId: string): Promise<number> {
-  let count = 0
+// ─── Import ───────────────────────────────────────────────────────────────────
+
+async function importSales(
+  records: SaleRecord[],
+  customerId: string,
+  cache: SyncCache
+): Promise<number> {
   const rows = []
   for (const r of records) {
-    const productId = await findProductId(r.productName)
+    const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
     if (!productId) continue
     rows.push({
       product_id: productId,
@@ -91,19 +92,22 @@ async function importSales(records: SaleRecord[], customerId: string): Promise<n
       price_per_kg: r.sellPrice,
       source: 'google_sheet',
     })
-    count++
   }
   if (rows.length > 0) {
-    await supabaseAdmin.from('sales').upsert(rows, { onConflict: 'product_id,customer_id,date,source', ignoreDuplicates: true })
+    await supabaseAdmin
+      .from('sales')
+      .upsert(rows, { onConflict: 'product_id,customer_id,date,source', ignoreDuplicates: true })
   }
-  return count
+  return rows.length
 }
 
-async function importPurchases(records: PurchaseRecord[]): Promise<number> {
-  let count = 0
+async function importPurchases(
+  records: PurchaseRecord[],
+  cache: SyncCache
+): Promise<number> {
   const rows = []
   for (const r of records) {
-    const productId = await findProductId(r.productName)
+    const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
     if (!productId) continue
     const totalCost = r.cartons * r.price
     const totalWeight = r.cartons * r.weight
@@ -118,18 +122,27 @@ async function importPurchases(records: PurchaseRecord[]): Promise<number> {
       cost_per_kg: net > 0 ? totalCost / net : 0,
       source: 'google_sheet',
     })
-    count++
   }
   if (rows.length > 0) {
-    await supabaseAdmin.from('purchases').upsert(rows, { onConflict: 'product_id,date', ignoreDuplicates: true })
+    await supabaseAdmin
+      .from('purchases')
+      .upsert(rows, { onConflict: 'product_id,date', ignoreDuplicates: true })
   }
-  return count
+  return rows.length
 }
 
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
 export async function syncSheets(spreadsheetId: string) {
-  const allSheets = await getSheets(spreadsheetId)
+  // تحميل كل البيانات مرة واحدة بدلاً من query لكل سجل
+  const [allSheets, cache] = await Promise.all([
+    getSheets(spreadsheetId),
+    buildCache(),
+  ])
+
   let totalImported = 0
   let newCustomers = 0
+  const pendingCustomers: string[] = []
 
   for (const sheet of allSheets) {
     const name = sheet.name.trim()
@@ -138,18 +151,37 @@ export async function syncSheets(spreadsheetId: string) {
     if (SYSTEM_SHEETS.includes(name)) {
       if (name.includes('المشتريات')) {
         const records = parsePurchasesSheet(sheet.data)
-        const count = await importPurchases(records)
+        const count = await importPurchases(records, cache)
         totalImported += count
       }
     } else {
-      const customerId = await findOrCreateCustomer(name)
+      const customerId = cache.sheetMap.get(name)
       if (customerId) {
         const records = parseCustomerSheet(sheet.data)
-        const count = await importSales(records, customerId)
+        const count = await importSales(records, customerId, cache)
         totalImported += count
       } else {
+        pendingCustomers.push(name)
         newCustomers++
       }
+    }
+  }
+
+  // إضافة العملاء الجدد لقائمة الانتظار (تجنب التكرار)
+  if (pendingCustomers.length > 0) {
+    const { data: existing } = await supabaseAdmin
+      .from('sync_pending_review')
+      .select('raw_name')
+      .eq('status', 'pending')
+      .eq('type', 'customer')
+
+    const existingNames = new Set((existing ?? []).map(r => r.raw_name))
+    const toInsert = pendingCustomers
+      .filter(n => !existingNames.has(n))
+      .map(n => ({ type: 'customer', raw_name: n, status: 'pending' }))
+
+    if (toInsert.length > 0) {
+      await supabaseAdmin.from('sync_pending_review').insert(toInsert)
     }
   }
 
@@ -161,7 +193,6 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Method not allowed', { status: 405 })
   }
 
-  // Auth verification
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
   if (!token) return new Response('Unauthorized', { status: 401 })
 

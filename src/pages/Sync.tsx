@@ -119,7 +119,7 @@ export default function Sync() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => approve(p.id)} className="gap-1">
+                    <Button size="sm" onClick={() => approve(p)} className="gap-1">
                       <CheckCircle className="w-3 h-3" /> اعتماد
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => reject(p.id)} className="gap-1 text-danger border-danger hover:bg-danger/10">
@@ -149,7 +149,7 @@ export default function Sync() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => approve(p.id)} className="gap-1">
+                    <Button size="sm" onClick={() => approve(p)} className="gap-1">
                       <CheckCircle className="w-3 h-3" /> اعتماد
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => reject(p.id)} className="gap-1 text-danger border-danger hover:bg-danger/10">

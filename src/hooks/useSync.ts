@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import type { SyncLog, SyncPendingReview } from '@/types'
+import type { Customer, SyncLog, SyncPendingReview } from '@/types'
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
 
@@ -39,15 +39,51 @@ export function useSyncPendingReview() {
 export function useApprovePendingReview() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (review: SyncPendingReview) => {
+      if (review.type === 'customer') {
+        const name = review.suggested_match || review.raw_name
+
+        // اكتشاف نوع العميل من الاسم
+        let customerType: Customer['type'] = 'مطعم'
+        if (name.includes('مستشفى'))     customerType = 'مستشفى'
+        else if (name.includes('فندق'))  customerType = 'فندق'
+        else if (name.includes('تجزئة')) customerType = 'تجزئة'
+
+        // إنشاء العميل إذا لم يكن موجوداً
+        const { data: existing } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('name_ar', name)
+          .maybeSingle()
+
+        let customerId: string
+        if (existing) {
+          customerId = existing.id
+        } else {
+          const { data: created, error: cErr } = await supabase
+            .from('customers')
+            .insert({ name_ar: name, type: customerType, is_active: true })
+            .select('id')
+            .single()
+          if (cErr) throw cErr
+          customerId = created.id
+        }
+
+        // ربط اسم الـ Sheet بالعميل
+        await supabase
+          .from('customer_sheet_mapping')
+          .upsert({ sheet_name: review.raw_name, customer_id: customerId }, { onConflict: 'sheet_name' })
+      }
+
       const { error } = await supabase
         .from('sync_pending_review')
         .update({ status: 'approved' })
-        .eq('id', id)
+        .eq('id', review.id)
       if (error) throw error
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sync_pending_review'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
     },
   })
 }
