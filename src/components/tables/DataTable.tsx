@@ -118,7 +118,7 @@ export function DataTable<T>({
                   <TableRow
                     key={row.id}
                     className={cn(
-                      'border-b border-border/50 transition-colors',
+                      'border-b border-border/50 last:border-b-0 transition-colors',
                       i % 2 === 0 ? 'bg-background' : 'bg-muted/20',
                       'hover:bg-primary/5',
                       rowClassName?.(row.original)

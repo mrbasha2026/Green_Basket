@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -112,7 +113,7 @@ export default function Profits() {
 
   const columns = useMemo<ColumnDef<ProfitRow>[]>(() => [
     { accessorKey: 'name', header: 'الصنف' },
-    { accessorKey: 'avgWAC', header: 'تكلفة/كج', cell: ({ getValue }) => formatNumber(getValue() as number) },
+    { accessorKey: 'avgWAC', header: 'م.و.م/كج', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'avgSellPrice', header: 'سعر البيع', cell: ({ getValue }) => formatNumber(getValue() as number) },
     {
       accessorKey: 'marginPerKg',
@@ -152,40 +153,61 @@ export default function Profits() {
 
   async function handleExportPDF() {
     if (profitRows.length === 0) return
-    const { jsPDF } = await import('jspdf')
-    const autoTable = (await import('jspdf-autotable')).default
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-    doc.setFontSize(14)
-    doc.text(`Profit Analysis - ${fromDate} to ${toDate}`, 14, 15)
-    doc.setFontSize(10)
-    doc.text(`Revenue: ${formatNumber(totalRevenue)} | Cost: ${formatNumber(totalCost)} | Profit: ${formatNumber(totalProfit)}`, 14, 22)
-
-    const headers = ['Product', 'WAC', 'Sell Price', 'Margin/kg', 'Margin%', 'Qty(kg)', 'Revenue', 'Cost', 'Profit']
-    const rows = profitRows.map(r => [
-      r.name,
-      formatNumber(r.avgWAC),
-      formatNumber(r.avgSellPrice),
-      formatNumber(r.marginPerKg),
-      `${r.marginPct.toFixed(1)}%`,
-      formatNumber(r.qtyKg),
-      formatNumber(r.totalRevenue),
-      formatNumber(r.totalCost),
-      formatNumber(r.totalProfit),
-    ])
-
-    autoTable(doc, {
-      head: [headers],
-      body: rows,
-      startY: 28,
-      styles: { fontSize: 8, halign: 'right' },
-      headStyles: { fillColor: [22, 163, 74] },
-    })
-
-    doc.save(`profits-${fromDate}-${toDate}.pdf`)
+    const el = document.getElementById('profits-report-content')
+    if (!el) return
+    try {
+      const { jsPDF } = await import('jspdf')
+      const html2canvas = (await import('html2canvas')).default
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+      const imgData = canvas.toDataURL('image/png')
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const margin = 8
+      const imgWidth = pageWidth - 2 * margin
+      const imgHeight = (canvas.height / canvas.width) * imgWidth
+      doc.addImage(imgData, 'PNG', margin, margin, imgWidth, Math.min(imgHeight, doc.internal.pageSize.getHeight() - 2 * margin))
+      doc.save(`profits-${fromDate}-${toDate}.pdf`)
+    } catch {
+      toast.error('حدث خطأ أثناء تصدير PDF')
+    }
   }
 
   return (
     <div className="space-y-6">
+      {/* hidden capture target for PDF */}
+      <div id="profits-report-content" className="fixed -left-[9999px] -top-[9999px] w-[1100px] bg-white p-4 text-sm font-sans" dir="rtl">
+        <p className="font-bold text-base mb-2">تحليل الأرباح — {fromDate} إلى {toDate}</p>
+        <p className="text-xs mb-3">الإيرادات: {formatNumber(totalRevenue)} | التكلفة: {formatNumber(totalCost)} | الربح: {formatNumber(totalProfit)}</p>
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr style={{ background: '#16a34a', color: '#fff' }}>
+              {['الصنف','م.و.م','سعر البيع','هامش/كج','هامش%','الكمية(كج)','الإيراد','التكلفة','الربح'].map(h => (
+                <th key={h} style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #ddd' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {profitRows.map((r, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee' }}>{r.name}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee' }}>{formatNumber(r.avgWAC)}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee' }}>{formatNumber(r.avgSellPrice)}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee', color: r.marginPerKg >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(r.marginPerKg)}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee', color: r.marginPct >= 0 ? '#16a34a' : '#dc2626' }}>{r.marginPct.toFixed(1)}%</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee' }}>{formatNumber(r.qtyKg)}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee' }}>{formatNumber(r.totalRevenue)}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee' }}>{formatNumber(r.totalCost)}</td>
+                <td style={{ padding: '3px 8px', borderBottom: '1px solid #eee', color: r.totalProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{formatNumber(r.totalProfit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {/* Filters */}
       <Card>
         <CardContent className="pt-5">

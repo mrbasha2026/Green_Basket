@@ -15,6 +15,7 @@ import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useAppStore } from '@/store/appStore'
 import { formatNumber, formatDate, todayISO, monthName } from '@/lib/utils'
 import type { WasteLog } from '@/types'
+import { exportToExcel } from '@/lib/excel'
 
 export default function Waste() {
   const { selectedMonth, selectedYear } = useAppStore()
@@ -250,7 +251,24 @@ export default function Waste() {
           {isLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : (
-            <DataTable data={filteredWaste} columns={columns} searchPlaceholder="بحث..." />
+            <DataTable
+              data={filteredWaste}
+              columns={columns}
+              searchPlaceholder="بحث..."
+              onExportExcel={async () => {
+                await exportToExcel('waste.xlsx',
+                  ['التاريخ','الصنف','الكمية(كج)','التكلفة(ر.س)','السبب','المصدر'],
+                  filteredWaste.map(w => [
+                    w.date,
+                    w.product?.name_ar ?? '',
+                    w.waste_kg,
+                    parseFloat((w.waste_kg * getWAC(w.product_id)).toFixed(2)),
+                    w.reason ?? '',
+                    w.source === 'web' ? 'يدوي' : 'Sheets',
+                  ])
+                )
+              }}
+            />
           )}
         </CardContent>
       </Card>

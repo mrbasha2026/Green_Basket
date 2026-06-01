@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StepWizard } from '@/components/forms/StepWizard'
 import { DataTable } from '@/components/tables/DataTable'
 import { useProducts } from '@/hooks/useProducts'
@@ -15,6 +16,8 @@ import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Purchase, PurchaseFormRow } from '@/types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
+import { FileDown, Upload } from 'lucide-react'
 
 const emptyRow = (): PurchaseFormRow => ({
   product_id: '',
@@ -34,10 +37,51 @@ export default function Purchases() {
   const [filterProduct, setFilterProduct] = useState('')
   const [filterSource, setFilterSource] = useState('')
   const [filterInvoice, setFilterInvoice] = useState('')
+  const [importDialog, setImportDialog] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
 
   const { data: products } = useProducts()
   const { data: purchases, isLoading } = usePurchases()
   const { mutateAsync: upsert, isPending } = useUpsertPurchases()
+
+  async function handleDownloadTemplate() {
+    await downloadTemplate('purchases-template.xlsx',
+      ['التاريخ','اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],
+      [['2024-01-01','طماطم','10','50','15'],['2024-01-01','خيار','5','40','12']]
+    )
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !products) return
+    setIsImporting(true)
+    try {
+      const parsed = await parseExcelFile(file)
+      const valid = parsed.filter(r => r['اسم الصنف'] && r['كراتين'])
+      if (valid.length === 0) { toast.error('لا توجد بيانات صالحة في الملف'); return }
+      const toInsert = valid.map(r => {
+        const productName = String(r['اسم الصنف'] ?? '')
+        const prod = products.find(p => p.name_ar === productName || p.name_en === productName)
+        const date = String(r['التاريخ'] ?? todayISO())
+        const cartons = Number(r['كراتين'] ?? 0)
+        const price = Number(r['السعر/كرتون'] ?? 0)
+        const weight = Number(r['وزن/كرتون(كج)'] ?? 0)
+        return {
+          product_id: prod?.id ?? '',
+          date, cartons_qty: cartons, price_per_carton: price, weight_per_carton: weight,
+          waste_kg: 0,
+          cost_per_kg: calcCostPerKg(cartons * price, cartons * weight, 0),
+          source: 'web' as const, notes: 'مع_فاتورة',
+        }
+      }).filter(r => r.product_id)
+      if (toInsert.length === 0) { toast.error('تأكد من مطابقة أسماء الأصناف'); return }
+      await upsert(toInsert)
+      toast.success(`تم استيراد ${toInsert.length} سجل`)
+      setImportDialog(false)
+    } catch { toast.error('حدث خطأ أثناء الاستيراد') }
+    finally { setIsImporting(false); if (importRef.current) importRef.current.value = '' }
+  }
 
   function updateRow(i: number, field: keyof PurchaseFormRow, value: string | number) {
     setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
@@ -293,9 +337,35 @@ export default function Purchases() {
       {/* History */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">سجل المشتريات</CardTitle>
+          <CardTitle className="text-base flex items-center justify-between">
+            <span>سجل المشتريات</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="gap-1" onClick={handleDownloadTemplate}>
+                <FileDown className="w-4 h-4" /> نموذج Excel
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
+                <Upload className="w-4 h-4" /> استيراد Excel
+              </Button>
+            </div>
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Import dialog */}
+          <Dialog open={importDialog} onOpenChange={setImportDialog}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>استيراد مشتريات من Excel</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">يجب أن يحتوي الملف على الأعمدة: <strong>التاريخ، اسم الصنف، كراتين، السعر/كرتون، وزن/كرتون(كج)</strong></p>
+                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="gap-1">
+                  <FileDown className="w-4 h-4" /> تحميل نموذج فارغ
+                </Button>
+                <input ref={importRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+                <Button onClick={() => importRef.current?.click()} disabled={isImporting} className="w-full gap-2">
+                  <Upload className="w-4 h-4" /> {isImporting ? 'جاري الاستيراد...' : 'اختر ملف Excel'}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           {/* Filters */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
             <div className="flex items-center gap-1">
@@ -339,7 +409,27 @@ export default function Purchases() {
           {isLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : (
-            <DataTable data={filteredPurchases} columns={columns} searchPlaceholder="بحث في المشتريات..." />
+            <DataTable
+              data={filteredPurchases}
+              columns={columns}
+              searchPlaceholder="بحث في المشتريات..."
+              onExportExcel={async () => {
+                await exportToExcel('purchases.xlsx',
+                  ['التاريخ','الصنف','كراتين','السعر/كرتون','إجمالي التكلفة','الوزن(كج)','تكلفة/كج','المصدر','الفاتورة'],
+                  filteredPurchases.map(p => [
+                    p.date,
+                    p.product?.name_ar ?? '',
+                    p.cartons_qty,
+                    p.price_per_carton,
+                    p.total_cost ?? 0,
+                    p.total_weight ?? 0,
+                    p.cost_per_kg,
+                    p.source === 'web' ? 'يدوي' : 'Sheets',
+                    p.notes === 'مع_فاتورة' ? 'مع فاتورة' : p.notes === 'بدون_فاتورة' ? 'بدون فاتورة' : '',
+                  ])
+                )
+              }}
+            />
           )}
         </CardContent>
       </Card>

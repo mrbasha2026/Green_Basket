@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -319,12 +319,22 @@ function DefaultPricesTab() {
   const { data: customers } = useCustomers()
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [prices, setPrices] = useState<Record<string, string>>({})
+  const [bulkPrice, setBulkPrice] = useState('')
   const { data: existingPrices } = useCustomerPrices(selectedCustomer || undefined)
   const { mutateAsync: upsertPrices, isPending } = useUpsertCustomerPrices()
 
   function handleCustomerChange(customerId: string) {
     setSelectedCustomer(customerId)
     setPrices({})
+    setBulkPrice('')
+  }
+
+  function applyBulkPrice() {
+    const v = parseFloat(bulkPrice)
+    if (!v || v <= 0 || !products) return
+    const all: Record<string, string> = {}
+    products.forEach(p => { all[p.id] = String(v) })
+    setPrices(all)
   }
 
   // Sync existing prices into form when they load
@@ -355,7 +365,7 @@ function DefaultPricesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-4">
+      <div className="flex items-end gap-4 flex-wrap">
         <div className="space-y-1 flex-1 max-w-xs">
           <Label>اختر العميل لإدارة أسعاره</Label>
           <Select value={selectedCustomer} onValueChange={handleCustomerChange}>
@@ -366,9 +376,24 @@ function DefaultPricesTab() {
           </Select>
         </div>
         {selectedCustomer && (
-          <Button onClick={handleSave} disabled={isPending}>
-            {isPending ? 'جاري الحفظ...' : 'حفظ الأسعار'}
-          </Button>
+          <>
+            <div className="space-y-1">
+              <Label>سعر موحد لكل الأصناف</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={bulkPrice} onChange={e => setBulkPrice(e.target.value)}
+                  className="w-32" dir="ltr"
+                />
+                <Button variant="outline" onClick={applyBulkPrice} disabled={!bulkPrice}>
+                  تطبيق على الكل
+                </Button>
+              </div>
+            </div>
+            <Button onClick={handleSave} disabled={isPending}>
+              {isPending ? 'جاري الحفظ...' : 'حفظ الأسعار'}
+            </Button>
+          </>
         )}
       </div>
 
@@ -420,15 +445,84 @@ function DefaultPricesTab() {
   )
 }
 
+// Site Settings Tab
+const SITE_SETTINGS_KEY = 'gb_site_settings'
+interface SiteSettings { name: string; tagline: string; phone: string; address: string; logo: string }
+const defaultSite: SiteSettings = { name: 'Greenbasket', tagline: 'نظام إدارة المتجر', phone: '', address: '', logo: '' }
+
+function SiteSettingsTab() {
+  const [settings, setSettings] = useState<SiteSettings>(() => {
+    try { return { ...defaultSite, ...JSON.parse(localStorage.getItem(SITE_SETTINGS_KEY) ?? '{}') } }
+    catch { return defaultSite }
+  })
+  const [saved, setSaved] = useState(false)
+  const logoRef = useRef<HTMLInputElement>(null)
+
+  function handleSave() {
+    localStorage.setItem(SITE_SETTINGS_KEY, JSON.stringify(settings))
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => setSettings(s => ({ ...s, logo: String(ev.target?.result ?? '') }))
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="space-y-6 max-w-lg">
+      <div className="flex items-center gap-6">
+        <div className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-muted/40 cursor-pointer" onClick={() => logoRef.current?.click()}>
+          {settings.logo
+            ? <img src={settings.logo} alt="logo" className="w-full h-full object-contain" />
+            : <span className="text-xs text-muted-foreground text-center px-2">اضغط لرفع الشعار</span>
+          }
+        </div>
+        <div>
+          <p className="text-sm font-medium">شعار المنشأة</p>
+          <p className="text-xs text-muted-foreground">صورة PNG/JPG بحجم مناسب</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => logoRef.current?.click()}>تغيير الشعار</Button>
+        </div>
+        <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+      </div>
+
+      {[
+        { label: 'اسم المنشأة', key: 'name', placeholder: 'Greenbasket' },
+        { label: 'الوصف / الشعار', key: 'tagline', placeholder: 'نظام إدارة المتجر' },
+        { label: 'رقم الهاتف', key: 'phone', placeholder: '05xxxxxxxx', dir: 'ltr' },
+        { label: 'العنوان', key: 'address', placeholder: 'المدينة، الحي...' },
+      ].map(f => (
+        <div key={f.key} className="space-y-1">
+          <Label>{f.label}</Label>
+          <Input
+            value={(settings as Record<string, string>)[f.key]}
+            onChange={e => setSettings(s => ({ ...s, [f.key]: e.target.value }))}
+            placeholder={f.placeholder}
+            dir={f.dir as 'ltr' | undefined}
+          />
+        </div>
+      ))}
+
+      <Button onClick={handleSave} className="gap-2">
+        {saved ? '✓ تم الحفظ' : 'حفظ الإعدادات'}
+      </Button>
+    </div>
+  )
+}
+
 export default function Settings() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="products">الأصناف</TabsTrigger>
           <TabsTrigger value="customers">العملاء</TabsTrigger>
           <TabsTrigger value="costs">أنواع التكاليف</TabsTrigger>
           <TabsTrigger value="prices">أسعار البيع</TabsTrigger>
+          <TabsTrigger value="site">بيانات الموقع</TabsTrigger>
         </TabsList>
         <TabsContent value="products">
           <Card>
@@ -452,6 +546,12 @@ export default function Settings() {
           <Card>
             <CardHeader><CardTitle className="text-base">أسعار البيع الافتراضية لكل عميل</CardTitle></CardHeader>
             <CardContent><DefaultPricesTab /></CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="site">
+          <Card>
+            <CardHeader><CardTitle className="text-base">بيانات المنشأة والموقع</CardTitle></CardHeader>
+            <CardContent><SiteSettingsTab /></CardContent>
           </Card>
         </TabsContent>
       </Tabs>

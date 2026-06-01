@@ -4,6 +4,21 @@ import {
   Calculator, Users, Trash2, RefreshCw, FileText, Settings, Leaf,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useState, useEffect } from 'react'
+
+function useSiteSettings() {
+  const [s, setS] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('gb_site_settings') ?? '{}') } catch { return {} }
+  })
+  useEffect(() => {
+    const handler = () => {
+      try { setS(JSON.parse(localStorage.getItem('gb_site_settings') ?? '{}')) } catch {}
+    }
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  }, [])
+  return s as { name?: string; tagline?: string; logo?: string }
+}
 
 const navItems = [
   { to: '/', label: 'لوحة التحكم', icon: LayoutDashboard, end: true },
@@ -20,16 +35,20 @@ const navItems = [
 ]
 
 export function Sidebar() {
+  const site = useSiteSettings()
   return (
     <aside className="w-64 min-h-screen bg-card border-l border-border flex flex-col">
       {/* Logo */}
       <div className="p-6 flex items-center gap-3 border-b border-border">
-        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-          <Leaf className="w-5 h-5 text-primary-foreground" />
+        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+          {site.logo
+            ? <img src={site.logo} alt="logo" className="w-full h-full object-contain" />
+            : <Leaf className="w-5 h-5 text-primary-foreground" />
+          }
         </div>
         <div>
-          <p className="font-bold text-foreground text-sm">Greenbasket</p>
-          <p className="text-xs text-muted-foreground">نظام إدارة المتجر</p>
+          <p className="font-bold text-foreground text-sm">{site.name || 'Greenbasket'}</p>
+          <p className="text-xs text-muted-foreground">{site.tagline || 'نظام إدارة المتجر'}</p>
         </div>
       </div>
 

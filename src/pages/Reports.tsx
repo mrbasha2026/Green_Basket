@@ -286,8 +286,8 @@ export default function Reports() {
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="products">ربحية الأصناف</TabsTrigger>
               <TabsTrigger value="customers">ربحية العملاء</TabsTrigger>
-              <TabsTrigger value="breakeven">Break-even</TabsTrigger>
-              <TabsTrigger value="cm">CM%</TabsTrigger>
+              <TabsTrigger value="breakeven">نقطة التعادل</TabsTrigger>
+              <TabsTrigger value="cm">هامش المساهمة%</TabsTrigger>
             </TabsList>
 
             {/* ── Tab 1: Product Profitability ───────────────────────────── */}
@@ -401,7 +401,7 @@ export default function Reports() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
-                    <span>Break-even — السعر الأدنى للبيع بلا خسارة</span>
+                    <span>نقطة التعادل — السعر الأدنى للبيع بلا خسارة</span>
                     {breakevenRows.length > 0 && (
                       <Button variant="outline" size="sm" className="gap-2"
                         onClick={() => exportToExcel(`breakeven-${periodTag}.xlsx`,
@@ -429,7 +429,7 @@ export default function Reports() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border bg-muted/50">
-                            {['الصنف','COGS','هدر','Overhead','التكلفة الكاملة/كج','متوسط سعر البيع','الفرق','الحالة'].map(h => (
+                            {['الصنف','تكلفة البضاعة','تكلفة الهدر','المصاريف','التكلفة الكاملة/كج','متوسط سعر البيع','الفرق','الحالة'].map(h => (
                               <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
                             ))}
                           </tr>
@@ -460,11 +460,11 @@ export default function Reports() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
-                    <span>Contribution Margin — مساهمة الصنف في تغطية التكاليف الثابتة</span>
+                    <span>هامش المساهمة — مساهمة الصنف في تغطية التكاليف الثابتة</span>
                     {cmRows.length > 0 && (
                       <Button variant="outline" size="sm" className="gap-2"
                         onClick={() => exportToExcel(`cm-${periodTag}.xlsx`,
-                          ['الصنف','CM ريال','CM%','الإيراد','COGS'],
+                          ['الصنف','هامش المساهمة(ر.س)','هامش%','الإيراد','تكلفة البضاعة'],
                           cmRows.map(r => [r.product, r.cm, r.cmPct.toFixed(1)+'%', r.revenue, r.directCost])
                         )}>
                         <FileDown className="w-4 h-4" /> Excel
@@ -488,7 +488,7 @@ export default function Reports() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border bg-muted/50">
-                            {['الصنف','CM ريال','CM%','الإيراد','COGS'].map(h => (
+                            {['الصنف','هامش المساهمة(ر.س)','هامش%','الإيراد','تكلفة البضاعة'].map(h => (
                               <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
                             ))}
                           </tr>

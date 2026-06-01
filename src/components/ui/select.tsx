@@ -12,12 +12,14 @@ interface CtxValue {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>
   labelMap: React.MutableRefObject<Map<string, string>>
   triggerRef: React.MutableRefObject<HTMLButtonElement | null>
+  registerLabel: (v: string, text: string) => void
 }
 
 const Ctx = React.createContext<CtxValue>({
   value: "", onValueChange: () => {}, open: false, setOpen: () => {},
   labelMap: { current: new Map() },
   triggerRef: { current: null },
+  registerLabel: () => {},
 })
 
 /* ─── Select (Root) ───────────────────────────────────────────────────── */
@@ -31,9 +33,17 @@ function Select({
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0)
   const labelMap = React.useRef<Map<string, string>>(new Map())
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const ref = React.useRef<HTMLDivElement>(null)
+
+  const registerLabel = React.useCallback((v: string, text: string) => {
+    if (labelMap.current.get(v) !== text) {
+      labelMap.current.set(v, text)
+      forceUpdate()
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!open) return
@@ -45,7 +55,7 @@ function Select({
   }, [open])
 
   return (
-    <Ctx.Provider value={{ value, onValueChange: onValueChange ?? (() => {}), open, setOpen, labelMap, triggerRef }}>
+    <Ctx.Provider value={{ value, onValueChange: onValueChange ?? (() => {}), open, setOpen, labelMap, triggerRef, registerLabel }}>
       <div ref={ref} className="relative w-full">
         {children}
       </div>
@@ -61,7 +71,8 @@ function SelectGroup({ children, className }: { children: React.ReactNode; class
 /* ─── SelectValue ─────────────────────────────────────────────────────── */
 function SelectValue({ placeholder, className }: { placeholder?: string; className?: string }) {
   const { value, labelMap } = React.useContext(Ctx)
-  const text = value ? (labelMap.current.get(value) ?? "") : ""
+  // Use Map.get directly — works for "" keys too
+  const text = labelMap.current.get(value) ?? ""
   return (
     <span className={cn(
       "flex-1 truncate text-right block leading-normal",
@@ -189,10 +200,9 @@ function SelectItem({
   className?: string
   disabled?: boolean
 }) {
-  const { value: selected, onValueChange, setOpen, labelMap } = React.useContext(Ctx)
+  const { value: selected, onValueChange, setOpen, registerLabel } = React.useContext(Ctx)
   const isSelected = selected === value
 
-  // Register label text so SelectValue can show it even when dropdown is closed
   React.useLayoutEffect(() => {
     const text =
       typeof children === "string"
@@ -202,7 +212,7 @@ function SelectItem({
           : (children as React.ReactElement)?.props?.children
               ? String((children as React.ReactElement).props.children)
               : ""
-    if (text) labelMap.current.set(value, text)
+    if (text) registerLabel(value, text)
   })
 
   return (
@@ -226,7 +236,7 @@ function SelectItem({
             : typeof children === "number"
               ? String(children)
               : ""
-        if (text) labelMap.current.set(value, text)
+        if (text) registerLabel(value, text)
         onValueChange(value)
         setOpen(false)
       }}

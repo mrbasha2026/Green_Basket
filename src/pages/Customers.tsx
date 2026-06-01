@@ -8,6 +8,7 @@ import { useSalesByRange } from '@/hooks/useSales'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { Sale } from '@/types'
+import { exportToExcel } from '@/lib/excel'
 
 export default function Customers() {
   const today = todayISO()
@@ -161,6 +162,12 @@ export default function Customers() {
             data={sales ?? []}
             columns={salesColumns}
             searchPlaceholder="بحث..."
+            onExportExcel={async () => {
+              await exportToExcel('customers-sales.xlsx',
+                ['التاريخ','الصنف','الكمية(كج)','السعر','الإجمالي'],
+                (sales ?? []).map(s => [s.date, s.product?.name_ar ?? '', s.qty_kg, s.price_per_kg, s.total_amount])
+              )
+            }}
           />
         </CardContent>
       </Card>
