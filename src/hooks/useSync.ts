@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { mockSyncLogs } from '@/lib/mockData'
 import type { Customer, SyncLog, SyncPendingReview } from '@/types'
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
@@ -8,7 +9,7 @@ export function useSyncLogs() {
   return useQuery<SyncLog[]>({
     queryKey: ['sync_logs'],
     queryFn: async () => {
-      if (USE_MOCK) return []
+      if (USE_MOCK) return mockSyncLogs
       const { data, error } = await supabase
         .from('sync_log')
         .select('*')
@@ -107,7 +108,7 @@ export function useRejectPendingReview() {
 export function useTriggerSync() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ spreadsheetId }: { spreadsheetId?: string } = {}) => {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
       const res = await fetch('/api/sync-sheets', {
@@ -116,6 +117,7 @@ export function useTriggerSync() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        body: JSON.stringify({ spreadsheetId: spreadsheetId || undefined }),
       })
       if (!res.ok) throw new Error(`Sync failed: ${res.statusText}`)
       return res.json()

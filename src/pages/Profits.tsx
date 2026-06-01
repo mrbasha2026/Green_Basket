@@ -3,13 +3,20 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { BarChart } from '@/components/charts/BarChart'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useSalesByRange } from '@/hooks/useSales'
+import { useWaste } from '@/hooks/useWaste'
+import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { formatNumber, todayISO } from '@/lib/utils'
 import type { Sale } from '@/types'
 import { cn } from '@/lib/utils'
+import { FileDown } from 'lucide-react'
+
+type CostMode = 'direct' | 'with_waste'
 
 interface ProfitRow {
   product_id: string
@@ -21,6 +28,7 @@ interface ProfitRow {
   qtyKg: number
   totalRevenue: number
   totalCost: number
+  totalWasteCost: number
   totalProfit: number
 }
 
@@ -30,27 +38,50 @@ export default function Profits() {
   thirtyAgo.setDate(thirtyAgo.getDate() - 30)
   const [fromDate, setFromDate] = useState(thirtyAgo.toISOString().split('T')[0])
   const [toDate, setToDate] = useState(today)
+  const [costMode, setCostMode] = useState<CostMode>('direct')
 
   const { data: sales, isLoading } = useSalesByRange(fromDate, toDate)
+  const { data: allWaste } = useWaste()
+  const { data: latestCosts } = useLatestPurchaseCosts(toDate)
+
+  const wasteInRange = useMemo(() =>
+    allWaste?.filter(w => w.date >= fromDate && w.date <= toDate) ?? [],
+    [allWaste, fromDate, toDate]
+  )
+
+  // Waste cost per product in the selected range
+  const wasteCostByProduct = useMemo(() => {
+    const result: Record<string, number> = {}
+    wasteInRange.forEach(w => {
+      const wac = latestCosts?.[w.product_id] ?? 0
+      result[w.product_id] = (result[w.product_id] ?? 0) + w.waste_kg * wac
+    })
+    return result
+  }, [wasteInRange, latestCosts])
 
   const profitRows = useMemo<ProfitRow[]>(() => {
     const map = new Map<string, { name: string; qty: number; revenue: number; cost: number; sells: Sale[] }>()
     sales?.forEach(s => {
       const name = s.product?.name_ar ?? s.product_id
       const existing = map.get(s.product_id) ?? { name, qty: 0, revenue: 0, cost: 0, sells: [] }
+      // Use WAC from sale record, fallback to latestCosts
+      const purchaseCost = s.total_purchase > 0
+        ? s.total_purchase
+        : s.qty_kg * (latestCosts?.[s.product_id] ?? 0)
       map.set(s.product_id, {
         ...existing,
         qty: existing.qty + s.qty_kg,
         revenue: existing.revenue + s.total_amount,
-        cost: existing.cost + s.total_purchase,
+        cost: existing.cost + purchaseCost,
         sells: [...existing.sells, s],
       })
     })
 
     return Array.from(map.entries()).map(([product_id, r]) => {
+      const totalWasteCost = costMode === 'with_waste' ? (wasteCostByProduct[product_id] ?? 0) : 0
       const avgSellPrice = r.qty > 0 ? r.revenue / r.qty : 0
-      const avgWAC = r.qty > 0 ? r.cost / r.qty : 0
-      const totalProfit = r.revenue - r.cost
+      const avgWAC = r.qty > 0 ? r.cost / r.qty : (latestCosts?.[product_id] ?? 0)
+      const totalProfit = r.revenue - r.cost - totalWasteCost
       const marginPct = r.revenue > 0 ? (totalProfit / r.revenue) * 100 : 0
 
       return {
@@ -63,14 +94,16 @@ export default function Profits() {
         qtyKg: r.qty,
         totalRevenue: r.revenue,
         totalCost: r.cost,
+        totalWasteCost,
         totalProfit,
       }
     }).sort((a, b) => b.totalProfit - a.totalProfit)
-  }, [sales])
+  }, [sales, latestCosts, wasteCostByProduct, costMode])
 
   const totalRevenue = useMemo(() => profitRows.reduce((s, r) => s + r.totalRevenue, 0), [profitRows])
   const totalCost = useMemo(() => profitRows.reduce((s, r) => s + r.totalCost, 0), [profitRows])
-  const totalProfit = totalRevenue - totalCost
+  const totalWasteCost = useMemo(() => profitRows.reduce((s, r) => s + r.totalWasteCost, 0), [profitRows])
+  const totalProfit = totalRevenue - totalCost - totalWasteCost
 
   const barData = useMemo(() =>
     profitRows.slice(0, 15).map(r => ({ name: r.name, 'هامش%': parseFloat(r.marginPct.toFixed(1)) })),
@@ -79,7 +112,7 @@ export default function Profits() {
 
   const columns = useMemo<ColumnDef<ProfitRow>[]>(() => [
     { accessorKey: 'name', header: 'الصنف' },
-    { accessorKey: 'avgWAC', header: 'WAC', cell: ({ getValue }) => formatNumber(getValue() as number) },
+    { accessorKey: 'avgWAC', header: 'تكلفة/كج', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'avgSellPrice', header: 'سعر البيع', cell: ({ getValue }) => formatNumber(getValue() as number) },
     {
       accessorKey: 'marginPerKg',
@@ -99,6 +132,14 @@ export default function Profits() {
     },
     { accessorKey: 'qtyKg', header: 'الكمية (كج)', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'totalRevenue', header: 'الإيراد', cell: ({ getValue }) => formatNumber(getValue() as number) },
+    { accessorKey: 'totalCost', header: 'تكلفة البضاعة', cell: ({ getValue }) => formatNumber(getValue() as number) },
+    ...(costMode === 'with_waste' ? [{
+      accessorKey: 'totalWasteCost',
+      header: 'تكلفة الهدر',
+      cell: ({ getValue }: { getValue: () => unknown }) => (
+        <span className="text-warning">{formatNumber(getValue() as number)}</span>
+      ),
+    } as ColumnDef<ProfitRow>] : []),
     {
       accessorKey: 'totalProfit',
       header: 'إجمالي الربح',
@@ -107,14 +148,48 @@ export default function Profits() {
         return <span className={cn('font-bold', v >= 0 ? 'text-success' : 'text-danger')}>{formatNumber(v)}</span>
       },
     },
-  ], [])
+  ], [costMode])
+
+  async function handleExportPDF() {
+    if (profitRows.length === 0) return
+    const { jsPDF } = await import('jspdf')
+    const autoTable = (await import('jspdf-autotable')).default
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    doc.setFontSize(14)
+    doc.text(`Profit Analysis - ${fromDate} to ${toDate}`, 14, 15)
+    doc.setFontSize(10)
+    doc.text(`Revenue: ${formatNumber(totalRevenue)} | Cost: ${formatNumber(totalCost)} | Profit: ${formatNumber(totalProfit)}`, 14, 22)
+
+    const headers = ['Product', 'WAC', 'Sell Price', 'Margin/kg', 'Margin%', 'Qty(kg)', 'Revenue', 'Cost', 'Profit']
+    const rows = profitRows.map(r => [
+      r.name,
+      formatNumber(r.avgWAC),
+      formatNumber(r.avgSellPrice),
+      formatNumber(r.marginPerKg),
+      `${r.marginPct.toFixed(1)}%`,
+      formatNumber(r.qtyKg),
+      formatNumber(r.totalRevenue),
+      formatNumber(r.totalCost),
+      formatNumber(r.totalProfit),
+    ])
+
+    autoTable(doc, {
+      head: [headers],
+      body: rows,
+      startY: 28,
+      styles: { fontSize: 8, halign: 'right' },
+      headStyles: { fillColor: [22, 163, 74] },
+    })
+
+    doc.save(`profits-${fromDate}-${toDate}.pdf`)
+  }
 
   return (
     <div className="space-y-6">
-      {/* Date range filter */}
+      {/* Filters */}
       <Card>
         <CardContent className="pt-5">
-          <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-end gap-4 flex-wrap">
             <div className="space-y-1">
               <Label>من</Label>
               <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="w-40" dir="ltr" />
@@ -123,12 +198,27 @@ export default function Profits() {
               <Label>إلى</Label>
               <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="w-40" dir="ltr" />
             </div>
+            <div className="space-y-1">
+              <Label>تكاليف المصروفات</Label>
+              <Select value={costMode} onValueChange={v => setCostMode(v as CostMode)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="direct">ربح مباشر فقط</SelectItem>
+                  <SelectItem value="with_waste">مع تكلفة الهدر</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleExportPDF} className="gap-2 mb-0.5">
+              <FileDown className="w-4 h-4" /> تصدير PDF
+            </Button>
           </div>
         </CardContent>
       </Card>
 
       {/* Summaries */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-5">
             <p className="text-sm text-muted-foreground">إجمالي الإيرادات</p>
@@ -137,13 +227,21 @@ export default function Profits() {
         </Card>
         <Card>
           <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground">إجمالي تكلفة البضاعة</p>
+            <p className="text-sm text-muted-foreground">تكلفة البضاعة</p>
             <p className="text-2xl font-bold text-foreground">{formatNumber(totalCost)} <span className="text-sm font-normal text-muted-foreground">ر.س</span></p>
           </CardContent>
         </Card>
+        {costMode === 'with_waste' && (
+          <Card>
+            <CardContent className="pt-5">
+              <p className="text-sm text-muted-foreground">تكلفة الهدر</p>
+              <p className="text-2xl font-bold text-warning">{formatNumber(totalWasteCost)} <span className="text-sm font-normal text-muted-foreground">ر.س</span></p>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground">إجمالي الربح المباشر</p>
+            <p className="text-sm text-muted-foreground">إجمالي الربح</p>
             <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
               {formatNumber(totalProfit)} <span className="text-sm font-normal text-muted-foreground">ر.س</span>
             </p>

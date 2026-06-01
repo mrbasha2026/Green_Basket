@@ -1,6 +1,6 @@
 import type {
   Product, Customer, Purchase, Sale, InventoryDaily,
-  WasteLog, CostCategory, OverheadEntry, MonthlyPL,
+  WasteLog, CostCategory, OverheadEntry, MonthlyPL, SyncLog,
 } from '@/types'
 import { todayISO } from './utils'
 
@@ -69,6 +69,12 @@ export const mockOverheadEntries: OverheadEntry[] = [
   { id: 'oe4', category_id: 'cc4', period_year: now.getFullYear(), period_month: now.getMonth() + 1, amount: 500, notes: null, created_at: today, category: mockCostCategories[3] },
   { id: 'oe5', category_id: 'cc5', period_year: now.getFullYear(), period_month: now.getMonth() + 1, amount: 3000, notes: null, created_at: today, category: mockCostCategories[4] },
   { id: 'oe6', category_id: 'cc6', period_year: now.getFullYear(), period_month: now.getMonth() + 1, amount: 1000, notes: null, created_at: today, category: mockCostCategories[5] },
+]
+
+export const mockSyncLogs: SyncLog[] = [
+  { id: 'sl1', synced_at: today + 'T06:15:00Z', trigger_type: 'manual', status: 'success', records_imported: 52, new_customers_found: 0, new_products_found: 0, errors: null, details: null },
+  { id: 'sl2', synced_at: yd + 'T06:10:00Z', trigger_type: 'scheduled', status: 'success', records_imported: 47, new_customers_found: 1, new_products_found: 0, errors: null, details: null },
+  { id: 'sl3', synced_at: yd + 'T12:30:00Z', trigger_type: 'manual', status: 'error', records_imported: 0, new_customers_found: 0, new_products_found: 0, errors: { message: 'Sheet not found' }, details: 'Sheet not found' },
 ]
 
 export const mockMonthlyPL: MonthlyPL = {

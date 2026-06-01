@@ -11,11 +11,13 @@ interface CtxValue {
   open: boolean
   setOpen: React.Dispatch<React.SetStateAction<boolean>>
   labelMap: React.MutableRefObject<Map<string, string>>
+  triggerRef: React.MutableRefObject<HTMLButtonElement | null>
 }
 
 const Ctx = React.createContext<CtxValue>({
   value: "", onValueChange: () => {}, open: false, setOpen: () => {},
   labelMap: { current: new Map() },
+  triggerRef: { current: null },
 })
 
 /* ─── Select (Root) ───────────────────────────────────────────────────── */
@@ -30,6 +32,7 @@ function Select({
 }) {
   const [open, setOpen] = React.useState(false)
   const labelMap = React.useRef<Map<string, string>>(new Map())
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const ref = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
@@ -42,7 +45,7 @@ function Select({
   }, [open])
 
   return (
-    <Ctx.Provider value={{ value, onValueChange: onValueChange ?? (() => {}), open, setOpen, labelMap }}>
+    <Ctx.Provider value={{ value, onValueChange: onValueChange ?? (() => {}), open, setOpen, labelMap, triggerRef }}>
       <div ref={ref} className="relative w-full">
         {children}
       </div>
@@ -77,9 +80,10 @@ function SelectTrigger({
   size = "default",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: "sm" | "default" }) {
-  const { open, setOpen } = React.useContext(Ctx)
+  const { open, setOpen, triggerRef } = React.useContext(Ctx)
   return (
     <button
+      ref={triggerRef}
       type="button"
       role="combobox"
       aria-expanded={open}
@@ -118,17 +122,46 @@ function SelectContent({
   alignOffset?: number
   alignItemWithTrigger?: boolean
 }) {
-  const { open } = React.useContext(Ctx)
-  // Always render (hidden when closed) so items register their labels via useLayoutEffect
+  const { open, triggerRef } = React.useContext(Ctx)
+  const [rect, setRect] = React.useState<{
+    bottom: number; top: number; left: number; width: number; openAbove: boolean
+  } | null>(null)
+
+  React.useLayoutEffect(() => {
+    if (open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - r.bottom
+      const openAbove = spaceBelow < 220 && r.top > 160
+      setRect({ bottom: r.bottom, top: r.top, left: r.left, width: r.width, openAbove })
+    } else {
+      setRect(null)
+    }
+  }, [open])
+
   return (
     <div
       className={cn(
-        "absolute top-full inset-x-0 mt-1 z-50 max-h-64 overflow-y-auto",
+        "z-[9999] max-h-64 overflow-y-auto",
         "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
         "dark:bg-slate-800 dark:border-slate-600",
         !open && "hidden",
+        !rect && "absolute top-full inset-x-0 mt-1",
         className,
       )}
+      style={rect && open ? (
+        rect.openAbove ? {
+          position: 'fixed',
+          bottom: window.innerHeight - rect.top + 4,
+          top: 'auto',
+          left: rect.left,
+          width: rect.width,
+        } : {
+          position: 'fixed',
+          top: rect.bottom + 4,
+          left: rect.left,
+          width: rect.width,
+        }
+      ) : undefined}
     >
       <div className="p-1">{children}</div>
     </div>

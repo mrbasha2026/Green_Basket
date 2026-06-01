@@ -27,13 +27,12 @@ export function computeProductAllocation(
   productId: string,
   revenue: number,
   totalRevenue: number,
-  totalOverhead: number,
+  allocatedOverhead: number,   // pre-computed overhead for this product
   directCost: number,
   wasteCost: number,
   qtySoldKg: number
 ): CostAllocationResult {
   const revenueSharePct = totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0
-  const allocatedOverhead = (revenueSharePct / 100) * totalOverhead
   const totalFullCost = directCost + wasteCost + allocatedOverhead
   const grossProfit = revenue - directCost - wasteCost
   const netProfit = revenue - totalFullCost

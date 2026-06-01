@@ -11,7 +11,7 @@ import { PieChart } from '@/components/charts/PieChart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
 import { useWaste, useInsertWaste } from '@/hooks/useWaste'
-import { useInventoryDaily } from '@/hooks/useInventory'
+import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useAppStore } from '@/store/appStore'
 import { formatNumber, formatDate, todayISO, monthName } from '@/lib/utils'
 import type { WasteLog } from '@/types'
@@ -25,12 +25,15 @@ export default function Waste() {
 
   const { data: products } = useProducts()
   const { data: wasteLog, isLoading } = useWaste({ month: selectedMonth, year: selectedYear })
-  const { data: inventory } = useInventoryDaily(date)
+  const { data: latestCosts } = useLatestPurchaseCosts()
   const { mutateAsync: insertWaste, isPending } = useInsertWaste()
 
-  function getWAC(pid: string) {
-    return inventory?.find(i => i.product_id === pid)?.weighted_avg_cost ?? 0
+  function getWAC(pid: string): number {
+    return latestCosts?.[pid] ?? 0
   }
+
+  // Show WAC for selected product in form
+  const formWAC = productId ? getWAC(productId) : 0
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -48,18 +51,28 @@ export default function Waste() {
 
   // Monthly summary grouped by product
   const monthlySummary = useMemo(() => {
-    const map = new Map<string, { name: string; waste_kg: number; cost: number; purchased_kg: number }>()
+    const map = new Map<string, { name: string; waste_kg: number; cost: number }>()
     wasteLog?.forEach(w => {
       const name = w.product?.name_ar ?? w.product_id
       const wac = getWAC(w.product_id)
-      const existing = map.get(w.product_id) ?? { name, waste_kg: 0, cost: 0, purchased_kg: 0 }
-      map.set(w.product_id, { ...existing, waste_kg: existing.waste_kg + w.waste_kg, cost: existing.cost + w.waste_kg * wac })
+      const existing = map.get(w.product_id) ?? { name, waste_kg: 0, cost: 0 }
+      map.set(w.product_id, {
+        ...existing,
+        waste_kg: existing.waste_kg + w.waste_kg,
+        cost: existing.cost + w.waste_kg * wac,
+      })
     })
     return Array.from(map.values()).sort((a, b) => b.waste_kg - a.waste_kg)
-  }, [wasteLog, inventory])
+  }, [wasteLog, latestCosts])
 
-  const pieData = useMemo(() =>
-    monthlySummary.slice(0, 5).map(r => ({ name: r.name, value: r.waste_kg })), [monthlySummary]
+  const pieDataQty = useMemo(() =>
+    monthlySummary.slice(0, 6).map(r => ({ name: r.name, value: parseFloat(r.waste_kg.toFixed(2)) })),
+    [monthlySummary]
+  )
+
+  const pieDataCost = useMemo(() =>
+    monthlySummary.filter(r => r.cost > 0).slice(0, 6).map(r => ({ name: r.name, value: parseFloat(r.cost.toFixed(2)) })),
+    [monthlySummary]
   )
 
   const [filterProduct, setFilterProduct] = useState('')
@@ -76,9 +89,20 @@ export default function Waste() {
     { accessorKey: 'date', header: 'التاريخ', cell: ({ getValue }) => formatDate(getValue() as string) },
     { accessorFn: r => r.product?.name_ar ?? '', id: 'product', header: 'الصنف' },
     { accessorKey: 'waste_kg', header: 'الكمية (كج)', cell: ({ getValue }) => formatNumber(getValue() as number) },
+    {
+      id: 'cost',
+      header: 'التكلفة (ر.س)',
+      cell: ({ row }) => {
+        const wac = getWAC(row.original.product_id)
+        const cost = row.original.waste_kg * wac
+        return wac > 0
+          ? <span className="text-danger">{formatNumber(cost)}</span>
+          : <span className="text-muted-foreground">—</span>
+      },
+    },
     { accessorKey: 'reason', header: 'السبب', cell: ({ getValue }) => (getValue() as string) ?? '—' },
     { accessorKey: 'source', header: 'المصدر', cell: ({ getValue }) => getValue() === 'web' ? 'يدوي' : 'Sheets' },
-  ], [])
+  ], [latestCosts])
 
   return (
     <div className="space-y-6">
@@ -88,7 +112,7 @@ export default function Waste() {
           <CardTitle>تسجيل هدر يومي</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="space-y-2">
               <Label>التاريخ</Label>
               <Input type="date" value={date} onChange={e => setDate(e.target.value)} dir="ltr" />
@@ -107,6 +131,15 @@ export default function Waste() {
               <Input type="number" min="0" step="0.01" value={wasteKg} onChange={e => setWasteKg(e.target.value)} dir="ltr" placeholder="0" />
             </div>
             <div className="space-y-2">
+              <Label>التكلفة المقدرة</Label>
+              <div className="h-9 flex items-center px-3 rounded-lg bg-muted/50 border border-border text-sm">
+                {formWAC > 0 && wasteKg
+                  ? <span className="text-danger font-medium">{formatNumber(parseFloat(wasteKg || '0') * formWAC)} ر.س</span>
+                  : <span className="text-muted-foreground">—</span>
+                }
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label>السبب (اختياري)</Label>
               <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="تلف طبيعي..." />
             </div>
@@ -117,7 +150,7 @@ export default function Waste() {
         </CardContent>
       </Card>
 
-      {/* Monthly summary */}
+      {/* Monthly summary + charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -139,7 +172,9 @@ export default function Waste() {
                       <tr key={i} className="border-b border-border/50">
                         <td className="px-3 py-2">{r.name}</td>
                         <td className="px-3 py-2 text-warning">{formatNumber(r.waste_kg)}</td>
-                        <td className="px-3 py-2 text-danger">{formatNumber(r.cost)}</td>
+                        <td className="px-3 py-2 text-danger">
+                          {r.cost > 0 ? formatNumber(r.cost) : <span className="text-muted-foreground">—</span>}
+                        </td>
                       </tr>
                     ))}
                     {monthlySummary.length === 0 && (
@@ -159,16 +194,30 @@ export default function Waste() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">أكثر الأصناف هدراً</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {pieData.length > 0 ? <PieChart data={pieData} /> : (
-              <p className="text-center text-muted-foreground py-16 text-sm">لا توجد بيانات</p>
-            )}
-          </CardContent>
-        </Card>
+        {/* Charts stacked vertically */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">حسب الكمية (كج)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pieDataQty.length > 0 ? <PieChart data={pieDataQty} /> : (
+                <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">حسب التكلفة (ر.س)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pieDataCost.length > 0 ? <PieChart data={pieDataCost} /> : (
+                <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات للتكلفة</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Log table */}

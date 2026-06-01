@@ -40,6 +40,33 @@ export function usePurchasesByRange(from: string, to: string) {
   })
 }
 
+export function useLatestPurchaseCosts(upToDate?: string) {
+  return useQuery<Record<string, number>>({
+    queryKey: ['purchases', 'latest_costs', upToDate],
+    queryFn: async () => {
+      if (USE_MOCK) {
+        const costs: Record<string, number> = {}
+        mockPurchases.forEach(p => {
+          if (!costs[p.product_id]) costs[p.product_id] = p.cost_per_kg
+        })
+        return costs
+      }
+      const q = supabase
+        .from('purchases')
+        .select('product_id, cost_per_kg, date')
+        .order('date', { ascending: false })
+      if (upToDate) q.lte('date', upToDate)
+      const { data, error } = await q
+      if (error) throw error
+      const costs: Record<string, number> = {}
+      data?.forEach((p: { product_id: string; cost_per_kg: number }) => {
+        if (!costs[p.product_id]) costs[p.product_id] = p.cost_per_kg
+      })
+      return costs
+    },
+  })
+}
+
 export function useUpsertPurchases() {
   const qc = useQueryClient()
   return useMutation({

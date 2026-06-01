@@ -56,36 +56,41 @@ export function useMonthlyPLHistory(months = 12) {
   })
 }
 
+type DistMethod = 'revenue' | 'qty' | 'equal'
+
 export function useCalculateCostAllocation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ year, month }: { year: number; month: number }) => {
+    mutationFn: async ({ year, month, distMethod = 'revenue' }: { year: number; month: number; distMethod?: DistMethod }) => {
+      const from = `${year}-${String(month).padStart(2, '0')}-01`
+      const to = new Date(year, month, 0).toISOString().split('T')[0]
+
       // 1. Sales by product
       const { data: salesData, error: salesErr } = await supabase
         .from('sales')
-        .select('product_id, qty_kg, total_amount')
-        .gte('date', `${year}-${String(month).padStart(2, '0')}-01`)
-        .lte('date', new Date(year, month, 0).toISOString().split('T')[0])
+        .select('product_id, qty_kg, total_amount, purchase_price_per_kg')
+        .gte('date', from).lte('date', to)
       if (salesErr) throw salesErr
 
-      // Aggregate by product
-      const salesByProduct = new Map<string, { qty: number; revenue: number }>()
+      const salesByProduct = new Map<string, { qty: number; revenue: number; purchaseCost: number }>()
       for (const s of salesData ?? []) {
-        const existing = salesByProduct.get(s.product_id) ?? { qty: 0, revenue: 0 }
+        const existing = salesByProduct.get(s.product_id) ?? { qty: 0, revenue: 0, purchaseCost: 0 }
         salesByProduct.set(s.product_id, {
           qty: existing.qty + Number(s.qty_kg),
           revenue: existing.revenue + Number(s.total_amount),
+          purchaseCost: existing.purchaseCost + Number(s.qty_kg) * Number(s.purchase_price_per_kg ?? 0),
         })
       }
 
       const totalRevenue = Array.from(salesByProduct.values()).reduce((s, r) => s + r.revenue, 0)
+      const totalQty = Array.from(salesByProduct.values()).reduce((s, r) => s + r.qty, 0)
+      const productCount = salesByProduct.size
 
-      // 2. Overhead total for month
+      // 2. Overhead
       const { data: ohData, error: ohErr } = await supabase
         .from('overhead_entries')
         .select('amount, category:cost_categories(name_ar)')
-        .eq('period_year', year)
-        .eq('period_month', month)
+        .eq('period_year', year).eq('period_month', month)
       if (ohErr) throw ohErr
 
       const totalOverhead = (ohData ?? []).reduce((s, r) => s + Number(r.amount), 0)
@@ -95,29 +100,67 @@ export function useCalculateCostAllocation() {
         overheadByCategory[name] = (overheadByCategory[name] ?? 0) + Number(e.amount)
       }
 
-      // 3. COGS + waste cost per product from inventory_daily
-      const { data: invData, error: invErr } = await supabase
+      // 3. COGS + waste — try inventory_daily first, fallback to direct
+      const { data: invData } = await supabase
         .from('inventory_daily')
         .select('product_id, sales_kg, waste_kg, weighted_avg_cost')
-        .gte('date', `${year}-${String(month).padStart(2, '0')}-01`)
-        .lte('date', new Date(year, month, 0).toISOString().split('T')[0])
-      if (invErr) throw invErr
+        .gte('date', from).lte('date', to)
 
       const costByProduct = new Map<string, { direct: number; waste: number }>()
-      for (const i of invData ?? []) {
-        const existing = costByProduct.get(i.product_id) ?? { direct: 0, waste: 0 }
-        costByProduct.set(i.product_id, {
-          direct: existing.direct + Number(i.sales_kg) * Number(i.weighted_avg_cost),
-          waste: existing.waste + Number(i.waste_kg) * Number(i.weighted_avg_cost),
-        })
+
+      if ((invData?.length ?? 0) > 0) {
+        for (const i of invData!) {
+          const existing = costByProduct.get(i.product_id) ?? { direct: 0, waste: 0 }
+          costByProduct.set(i.product_id, {
+            direct: existing.direct + Number(i.sales_kg) * Number(i.weighted_avg_cost),
+            waste: existing.waste + Number(i.waste_kg) * Number(i.weighted_avg_cost),
+          })
+        }
+      } else {
+        // Fallback: COGS from sales.purchase_price_per_kg
+        for (const [pid, s] of salesByProduct.entries()) {
+          costByProduct.set(pid, { direct: s.purchaseCost, waste: 0 })
+        }
+
+        // Latest purchase cost per product (for waste calculation)
+        const { data: purchaseData } = await supabase
+          .from('purchases').select('product_id, cost_per_kg, date')
+          .lte('date', to).order('date', { ascending: false })
+        const latestCost: Record<string, number> = {}
+        for (const p of purchaseData ?? []) {
+          if (!latestCost[p.product_id]) latestCost[p.product_id] = Number(p.cost_per_kg)
+        }
+
+        // Waste cost from waste_log
+        const { data: wasteData } = await supabase
+          .from('waste_log').select('product_id, waste_kg')
+          .gte('date', from).lte('date', to)
+        for (const w of wasteData ?? []) {
+          const existing = costByProduct.get(w.product_id) ?? { direct: 0, waste: 0 }
+          costByProduct.set(w.product_id, {
+            ...existing,
+            waste: existing.waste + Number(w.waste_kg) * (latestCost[w.product_id] ?? 0),
+          })
+        }
       }
 
-      // 4. Compute allocations
+      // 4. Compute allocations with selected distribution method
       const allocations = []
       for (const [productId, { qty, revenue }] of salesByProduct.entries()) {
         const costs = costByProduct.get(productId) ?? { direct: 0, waste: 0 }
+
+        // Overhead share based on distMethod
+        let allocatedOverhead = 0
+        if (distMethod === 'revenue') {
+          allocatedOverhead = totalRevenue > 0 ? (revenue / totalRevenue) * totalOverhead : 0
+        } else if (distMethod === 'qty') {
+          allocatedOverhead = totalQty > 0 ? (qty / totalQty) * totalOverhead : 0
+        } else {
+          allocatedOverhead = productCount > 0 ? totalOverhead / productCount : 0
+        }
+
         const result = computeProductAllocation(
-          productId, revenue, totalRevenue, totalOverhead,
+          productId, revenue, totalRevenue, allocatedOverhead,
           costs.direct, costs.waste, qty
         )
         allocations.push({ ...result, period_year: year, period_month: month })

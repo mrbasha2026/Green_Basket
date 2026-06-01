@@ -176,7 +176,18 @@ create table if not exists monthly_pl (
   unique (period_year, period_month)
 );
 
--- 13. سجل المزامنة
+-- 13. أسعار البيع الافتراضية (عميل × صنف)
+create table if not exists customer_product_prices (
+  id            uuid primary key default gen_random_uuid(),
+  customer_id   uuid not null references customers(id) on delete cascade,
+  product_id    uuid not null references products(id) on delete cascade,
+  price_per_kg  numeric not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (customer_id, product_id)
+);
+
+-- 14. سجل المزامنة
 create table if not exists sync_log (
   id                    uuid primary key default gen_random_uuid(),
   synced_at             timestamptz not null default now(),
@@ -216,6 +227,7 @@ alter table cost_categories        enable row level security;
 alter table overhead_entries       enable row level security;
 alter table cost_allocation        enable row level security;
 alter table monthly_pl             enable row level security;
+alter table customer_product_prices enable row level security;
 alter table sync_log               enable row level security;
 alter table sync_pending_review    enable row level security;
 
@@ -232,6 +244,7 @@ create policy "authenticated full access" on cost_categories        for all to a
 create policy "authenticated full access" on overhead_entries       for all to authenticated using (true) with check (true);
 create policy "authenticated full access" on cost_allocation        for all to authenticated using (true) with check (true);
 create policy "authenticated full access" on monthly_pl             for all to authenticated using (true) with check (true);
+create policy "authenticated full access" on customer_product_prices for all to authenticated using (true) with check (true);
 create policy "authenticated full access" on sync_log               for all to authenticated using (true) with check (true);
 create policy "authenticated full access" on sync_pending_review    for all to authenticated using (true) with check (true);
 

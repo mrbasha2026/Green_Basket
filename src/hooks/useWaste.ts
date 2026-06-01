@@ -27,6 +27,23 @@ export function useWaste(filters?: { date?: string; month?: number; year?: numbe
   })
 }
 
+export function useWasteByRange(from: string, to: string) {
+  return useQuery<WasteLog[]>({
+    queryKey: ['waste', 'range', from, to],
+    queryFn: async () => {
+      if (USE_MOCK) return mockWaste.filter(w => w.date >= from && w.date <= to)
+      const { data, error } = await supabase
+        .from('waste_log')
+        .select('*, product:products(*)')
+        .gte('date', from)
+        .lte('date', to)
+        .order('date', { ascending: false })
+      if (error) throw error
+      return data as WasteLog[]
+    },
+  })
+}
+
 export function useInsertWaste() {
   const qc = useQueryClient()
   return useMutation({

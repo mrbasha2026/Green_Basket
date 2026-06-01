@@ -1,15 +1,36 @@
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { useSyncLogs, useSyncPendingReview, useTriggerSync, useApprovePendingReview, useRejectPendingReview } from '@/hooks/useSync'
-import { formatDate } from '@/lib/utils'
+import { formatDateTime } from '@/lib/utils'
 import type { SyncLog } from '@/types'
-import { RefreshCw, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Clock, Settings2 } from 'lucide-react'
+import { monthName, todayISO } from '@/lib/utils'
 
+// ── Per-month spreadsheet config stored in localStorage ──────────────────────
+const CONFIG_KEY = 'gb_monthly_sheets'
+type SheetsConfig = Record<string, string> // key: "YYYY-MM", value: spreadsheet ID
+
+function loadConfig(): SheetsConfig {
+  try { return JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}') } catch { return {} }
+}
+function saveConfig(cfg: SheetsConfig) {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg))
+}
+
+function currentMonthKey() {
+  const d = new Date(todayISO() + 'T12:00:00')
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function Sync() {
   const { data: logs, isLoading: logsLoading } = useSyncLogs()
   const { data: pending } = useSyncPendingReview()
@@ -17,11 +38,36 @@ export default function Sync() {
   const { mutateAsync: approve } = useApprovePendingReview()
   const { mutateAsync: reject } = useRejectPendingReview()
 
+  // Per-month sheets config
+  const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>({})
+  const [showConfig, setShowConfig] = useState(false)
+
+  useEffect(() => { setSheetsConfig(loadConfig()) }, [])
+
+  const now = new Date(todayISO() + 'T12:00:00')
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  // Build a list of the last 6 months for configuration
+  const monthList = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(currentYear, currentMonth - 1 - i, 1)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    return { key, year: d.getFullYear(), month: d.getMonth() + 1 }
+  })
+
+  function updateSheetId(key: string, id: string) {
+    const updated = { ...sheetsConfig, [key]: id }
+    setSheetsConfig(updated)
+    saveConfig(updated)
+  }
+
+  const activeSheetId = sheetsConfig[currentMonthKey()] ?? ''
+
   const lastSync = logs?.[0]
 
   async function handleSync() {
     try {
-      const result = await triggerSync()
+      const result = await triggerSync({ spreadsheetId: activeSheetId || undefined })
       toast.success(`تمت المزامنة — ${result.imported ?? 0} سجل`)
     } catch (err) {
       toast.error(`فشلت المزامنة: ${(err as Error).message}`)
@@ -35,7 +81,7 @@ export default function Sync() {
     {
       accessorKey: 'synced_at',
       header: 'وقت المزامنة',
-      cell: ({ getValue }) => formatDate(getValue() as string),
+      cell: ({ getValue }) => formatDateTime(getValue() as string),
     },
     {
       accessorKey: 'trigger_type',
@@ -76,7 +122,7 @@ export default function Sync() {
                   ) : (
                     <XCircle className="w-4 h-4 text-danger" />
                   )}
-                  <span className="font-medium">{formatDate(lastSync.synced_at)}</span>
+                  <span className="font-medium">{formatDateTime(lastSync.synced_at)}</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {lastSync.records_imported} سجل مستورد
@@ -90,17 +136,60 @@ export default function Sync() {
 
         <Card>
           <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground mb-3">استيراد يدوي</p>
-            <Button onClick={handleSync} disabled={syncing} className="gap-2">
-              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'جاري الاستيراد...' : 'استيراد الآن'}
-            </Button>
+            <p className="text-sm text-muted-foreground mb-1">استيراد يدوي</p>
+            {activeSheetId && (
+              <p className="text-xs text-muted-foreground mb-3 font-mono truncate" dir="ltr">{activeSheetId}</p>
+            )}
+            <div className="flex gap-2">
+              <Button onClick={handleSync} disabled={syncing} className="gap-2">
+                <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'جاري الاستيراد...' : 'استيراد الآن'}
+              </Button>
+              <Button variant="outline" size="icon" onClick={() => setShowConfig(v => !v)}>
+                <Settings2 className="w-4 h-4" />
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground mt-2">
-              يستورد من Google Sheet الموضح في إعدادات البيئة
+              يستورد من ملف {monthName(currentMonth)} {currentYear}
             </p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Per-month sheets configuration */}
+      {showConfig && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Settings2 className="w-4 h-4" />
+              إعداد ملفات Google Sheets الشهرية
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-4">
+              أدخل معرّف الـ Spreadsheet ID لكل شهر (موجود في رابط الـ Sheet بعد /d/ وقبل /edit)
+            </p>
+            <div className="space-y-3">
+              {monthList.map(({ key, year, month }) => (
+                <div key={key} className="flex items-center gap-3">
+                  <Label className="w-28 text-sm shrink-0">
+                    {monthName(month)} {year}
+                    {key === currentMonthKey() && <span className="text-xs text-primary mr-1">(الحالي)</span>}
+                  </Label>
+                  <Input
+                    dir="ltr"
+                    placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                    value={sheetsConfig[key] ?? ''}
+                    onChange={e => updateSheetId(key, e.target.value)}
+                    className="text-xs font-mono"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">يُحفظ تلقائياً في المتصفح</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Pending review */}
       {pendingCustomers.length > 0 && (
@@ -171,6 +260,8 @@ export default function Sync() {
         <CardContent>
           {logsLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+          ) : (logs ?? []).length === 0 ? (
+            <p className="text-center text-muted-foreground py-10 text-sm">لا توجد مزامنات سابقة — اضغط "استيراد الآن" لبدء أول مزامنة</p>
           ) : (
             <DataTable data={logs ?? []} columns={logColumns} searchPlaceholder="بحث..." />
           )}

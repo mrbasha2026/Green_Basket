@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,8 +11,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useAllProducts, useUpsertProduct } from '@/hooks/useProducts'
 import { useAllCustomers, useUpsertCustomer } from '@/hooks/useCustomers'
 import { useCostCategories, useUpsertCostCategory } from '@/hooks/useOverhead'
+import { useCustomerPrices, useUpsertCustomerPrices } from '@/hooks/useCustomerPrices'
+import { useProducts } from '@/hooks/useProducts'
+import { useCustomers } from '@/hooks/useCustomers'
 import type { Product, Customer, CostCategory } from '@/types'
 import { Plus, Pencil } from 'lucide-react'
+import { formatNumber } from '@/lib/utils'
 
 // Products Tab
 function ProductsTab() {
@@ -309,14 +313,122 @@ function CostCategoriesTab() {
   )
 }
 
+// Default Prices Tab
+function DefaultPricesTab() {
+  const { data: products } = useProducts()
+  const { data: customers } = useCustomers()
+  const [selectedCustomer, setSelectedCustomer] = useState('')
+  const [prices, setPrices] = useState<Record<string, string>>({})
+  const { data: existingPrices } = useCustomerPrices(selectedCustomer || undefined)
+  const { mutateAsync: upsertPrices, isPending } = useUpsertCustomerPrices()
+
+  function handleCustomerChange(customerId: string) {
+    setSelectedCustomer(customerId)
+    setPrices({})
+  }
+
+  // Sync existing prices into form when they load
+  useEffect(() => {
+    if (!selectedCustomer || !existingPrices) return
+    const loaded: Record<string, string> = {}
+    existingPrices.forEach(p => { loaded[p.product_id] = String(p.price_per_kg) })
+    setPrices(loaded)
+  }, [existingPrices, selectedCustomer])
+
+  async function handleSave() {
+    if (!selectedCustomer) { toast.error('اختر عميلاً أولاً'); return }
+    const rows = Object.entries(prices)
+      .filter(([, v]) => parseFloat(v) > 0)
+      .map(([productId, price]) => ({
+        customer_id: selectedCustomer,
+        product_id: productId,
+        price_per_kg: parseFloat(price),
+      }))
+    if (rows.length === 0) { toast.error('أدخل سعراً واحداً على الأقل'); return }
+    try {
+      await upsertPrices(rows)
+      toast.success(`تم حفظ ${rows.length} سعر`)
+    } catch {
+      toast.error('حدث خطأ أثناء الحفظ')
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-end gap-4">
+        <div className="space-y-1 flex-1 max-w-xs">
+          <Label>اختر العميل لإدارة أسعاره</Label>
+          <Select value={selectedCustomer} onValueChange={handleCustomerChange}>
+            <SelectTrigger><SelectValue placeholder="اختر عميلاً" /></SelectTrigger>
+            <SelectContent>
+              {customers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {selectedCustomer && (
+          <Button onClick={handleSave} disabled={isPending}>
+            {isPending ? 'جاري الحفظ...' : 'حفظ الأسعار'}
+          </Button>
+        )}
+      </div>
+
+      {!selectedCustomer && (
+        <p className="text-sm text-muted-foreground text-center py-8">اختر عميلاً لعرض وتعديل أسعار البيع الافتراضية</p>
+      )}
+
+      {selectedCustomer && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                <th className="px-3 py-2 text-right text-muted-foreground">الصنف</th>
+                <th className="px-3 py-2 text-right text-muted-foreground">الفئة</th>
+                <th className="px-3 py-2 text-right text-muted-foreground">سعر البيع (ر.س/كج)</th>
+                <th className="px-3 py-2 text-right text-muted-foreground">السعر المحفوظ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products?.map(p => {
+                const saved = existingPrices?.find(ep => ep.product_id === p.id)
+                return (
+                  <tr key={p.id} className="border-b border-border/50">
+                    <td className="px-3 py-2 font-medium">{p.name_ar}</td>
+                    <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                    <td className="px-3 py-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={prices[p.id] ?? ''}
+                        onChange={e => setPrices(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        className="w-28 text-sm"
+                        dir="ltr"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {saved ? formatNumber(saved.price_per_kg) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="products">الأصناف</TabsTrigger>
           <TabsTrigger value="customers">العملاء</TabsTrigger>
           <TabsTrigger value="costs">أنواع التكاليف</TabsTrigger>
+          <TabsTrigger value="prices">أسعار البيع</TabsTrigger>
         </TabsList>
         <TabsContent value="products">
           <Card>
@@ -334,6 +446,12 @@ export default function Settings() {
           <Card>
             <CardHeader><CardTitle className="text-base">أنواع التكاليف غير المباشرة</CardTitle></CardHeader>
             <CardContent><CostCategoriesTab /></CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="prices">
+          <Card>
+            <CardHeader><CardTitle className="text-base">أسعار البيع الافتراضية لكل عميل</CardTitle></CardHeader>
+            <CardContent><DefaultPricesTab /></CardContent>
           </Card>
         </TabsContent>
       </Tabs>

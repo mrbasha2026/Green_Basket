@@ -14,6 +14,7 @@ import { calcCostPerKg } from '@/lib/calculations'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Purchase, PurchaseFormRow } from '@/types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 const emptyRow = (): PurchaseFormRow => ({
   product_id: '',
@@ -26,13 +27,16 @@ const emptyRow = (): PurchaseFormRow => ({
 export default function Purchases() {
   const [step, setStep] = useState(0)
   const [selectedDate, setSelectedDate] = useState(todayISO())
+  const [invoiceType, setInvoiceType] = useState<'مع_فاتورة' | 'بدون_فاتورة'>('مع_فاتورة')
   const [rows, setRows] = useState<PurchaseFormRow[]>([emptyRow()])
-  const [filterDate, setFilterDate] = useState('')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterSource, setFilterSource] = useState('')
+  const [filterInvoice, setFilterInvoice] = useState('')
 
   const { data: products } = useProducts()
-  const { data: purchases, isLoading } = usePurchases(filterDate || undefined)
+  const { data: purchases, isLoading } = usePurchases()
   const { mutateAsync: upsert, isPending } = useUpsertPurchases()
 
   function updateRow(i: number, field: keyof PurchaseFormRow, value: string | number) {
@@ -60,14 +64,14 @@ export default function Purchases() {
         cartons_qty: r.cartons_qty,
         price_per_carton: r.price_per_carton,
         weight_per_carton: r.weight_per_carton,
-        waste_kg: r.waste_kg,
+        waste_kg: 0,
         cost_per_kg: calcCostPerKg(
           r.cartons_qty * r.price_per_carton,
           r.cartons_qty * r.weight_per_carton,
-          r.waste_kg
+          0
         ),
         source: 'web' as const,
-        notes: null,
+        notes: invoiceType,
       })))
       toast.success('تم حفظ المشتريات بنجاح')
       setStep(0)
@@ -81,10 +85,12 @@ export default function Purchases() {
     let data = purchases ?? []
     if (filterProduct) data = data.filter(p => p.product_id === filterProduct)
     if (filterSource) data = data.filter(p => p.source === filterSource)
+    if (filterDateFrom) data = data.filter(p => p.date >= filterDateFrom)
+    if (filterDateTo) data = data.filter(p => p.date <= filterDateTo)
+    if (filterInvoice) data = data.filter(p => p.notes === filterInvoice)
     return data
-  }, [purchases, filterProduct, filterSource])
+  }, [purchases, filterProduct, filterSource, filterDateFrom, filterDateTo, filterInvoice])
 
-  // History columns
   const columns = useMemo<ColumnDef<Purchase>[]>(() => [
     { accessorKey: 'date', header: 'التاريخ', cell: ({ getValue }) => formatDate(getValue() as string) },
     { accessorFn: r => r.product?.name_ar ?? r.product_id, header: 'الصنف', id: 'product' },
@@ -92,10 +98,23 @@ export default function Purchases() {
     { accessorKey: 'price_per_carton', header: 'السعر/كرتون', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'total_cost', header: 'إجمالي التكلفة', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'total_weight', header: 'إجمالي الوزن (كج)', cell: ({ getValue }) => formatNumber(getValue() as number) },
-    { accessorKey: 'waste_kg', header: 'الهدر (كج)', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'cost_per_kg', header: 'تكلفة/كج', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'source', header: 'المصدر', cell: ({ getValue }) => getValue() === 'web' ? 'يدوي' : 'Sheets' },
+    {
+      id: 'invoice',
+      header: 'الفاتورة',
+      cell: ({ row }) => {
+        if (row.original.source !== 'web') return <span className="text-muted-foreground">—</span>
+        return row.original.notes === 'مع_فاتورة' ? (
+          <span className="text-xs bg-success/15 text-success px-2 py-0.5 rounded">مع فاتورة</span>
+        ) : row.original.notes === 'بدون_فاتورة' ? (
+          <span className="text-xs bg-warning/15 text-warning px-2 py-0.5 rounded">بدون فاتورة</span>
+        ) : <span className="text-muted-foreground">—</span>
+      },
+    },
   ], [])
+
+  const hasFilters = filterDateFrom || filterDateTo || filterProduct || filterSource || filterInvoice
 
   return (
     <div className="space-y-6">
@@ -115,14 +134,36 @@ export default function Purchases() {
               {
                 label: 'اختيار التاريخ',
                 component: (
-                  <div className="space-y-3 max-w-xs">
-                    <Label>تاريخ الشراء</Label>
-                    <Input
-                      type="date"
-                      value={selectedDate}
-                      onChange={e => setSelectedDate(e.target.value)}
-                      dir="ltr"
-                    />
+                  <div className="space-y-4 max-w-sm">
+                    <div className="space-y-2">
+                      <Label>تاريخ الشراء</Label>
+                      <Input
+                        type="date"
+                        value={selectedDate}
+                        onChange={e => setSelectedDate(e.target.value)}
+                        dir="ltr"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>نوع الشراء</Label>
+                      <div className="flex gap-2">
+                        {(['مع_فاتورة', 'بدون_فاتورة'] as const).map(t => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setInvoiceType(t)}
+                            className={cn(
+                              'flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors',
+                              invoiceType === t
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-border bg-background text-muted-foreground hover:bg-muted/60'
+                            )}
+                          >
+                            {t === 'مع_فاتورة' ? 'مع فاتورة' : 'بدون فاتورة'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 ),
               },
@@ -134,7 +175,7 @@ export default function Purchases() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border bg-muted/50">
-                            {['الصنف','كراتين','السعر/كرتون','وزن/كرتون','هدر(كج)','تكلفة/كج'].map(h => (
+                            {['الصنف','كراتين','السعر/كرتون','وزن/كرتون','تكلفة/كج'].map(h => (
                               <th key={h} className="px-3 py-2 text-right font-medium text-muted-foreground">{h}</th>
                             ))}
                             <th className="px-3 py-2"></th>
@@ -144,7 +185,7 @@ export default function Purchases() {
                           {rows.map((r, i) => {
                             const totalCost = r.cartons_qty * r.price_per_carton
                             const totalWeight = r.cartons_qty * r.weight_per_carton
-                            const costPerKg = calcCostPerKg(totalCost, totalWeight, r.waste_kg)
+                            const costPerKg = calcCostPerKg(totalCost, totalWeight, 0)
                             return (
                               <tr key={i} className="border-b border-border/50">
                                 <td className="px-2 py-1.5">
@@ -162,7 +203,7 @@ export default function Purchases() {
                                     </SelectContent>
                                   </Select>
                                 </td>
-                                {(['cartons_qty','price_per_carton','weight_per_carton','waste_kg'] as const).map(field => (
+                                {(['cartons_qty','price_per_carton','weight_per_carton'] as const).map(field => (
                                   <td key={field} className="px-2 py-1.5">
                                     <Input
                                       type="number"
@@ -199,7 +240,13 @@ export default function Purchases() {
                 label: 'مراجعة وحفظ',
                 component: (
                   <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">التاريخ: {formatDate(selectedDate)}</p>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>التاريخ: <span className="font-medium text-foreground">{formatDate(selectedDate)}</span></span>
+                      <span>النوع: <span className={cn(
+                        'font-medium',
+                        invoiceType === 'مع_فاتورة' ? 'text-success' : 'text-warning'
+                      )}>{invoiceType === 'مع_فاتورة' ? 'مع فاتورة' : 'بدون فاتورة'}</span></span>
+                    </div>
                     <div className="rounded-lg border border-border overflow-hidden">
                       <table className="w-full text-sm">
                         <thead>
@@ -214,7 +261,7 @@ export default function Purchases() {
                           {rows.filter(r => r.product_id && r.cartons_qty > 0).map((r, i) => {
                             const totalCost = r.cartons_qty * r.price_per_carton
                             const totalWeight = r.cartons_qty * r.weight_per_carton
-                            const costPerKg = calcCostPerKg(totalCost, totalWeight, r.waste_kg)
+                            const costPerKg = calcCostPerKg(totalCost, totalWeight, 0)
                             const product = products?.find(p => p.id === r.product_id)
                             return (
                               <tr key={i} className="border-b border-border/50">
@@ -250,10 +297,14 @@ export default function Purchases() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filters */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
             <div className="flex items-center gap-1">
-              <Label className="text-xs shrink-0">التاريخ</Label>
-              <Input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="text-xs h-9" dir="ltr" />
+              <Label className="text-xs shrink-0">من</Label>
+              <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="text-xs h-9" dir="ltr" />
+            </div>
+            <div className="flex items-center gap-1">
+              <Label className="text-xs shrink-0">إلى</Label>
+              <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="text-xs h-9" dir="ltr" />
             </div>
             <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
               <SelectTrigger><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
@@ -270,9 +321,19 @@ export default function Purchases() {
                 <SelectItem value="google_sheet">Sheets</SelectItem>
               </SelectContent>
             </Select>
-            {(filterDate || filterProduct || filterSource) && (
-              <Button variant="ghost" size="sm" onClick={() => { setFilterDate(''); setFilterProduct(''); setFilterSource('') }}
-                className="text-muted-foreground">مسح الفلاتر</Button>
+            <Select value={filterInvoice} onValueChange={v => setFilterInvoice(v ?? '')}>
+              <SelectTrigger><SelectValue placeholder="كل أنواع الفاتورة" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">الكل</SelectItem>
+                <SelectItem value="مع_فاتورة">مع فاتورة</SelectItem>
+                <SelectItem value="بدون_فاتورة">بدون فاتورة</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasFilters && (
+              <Button variant="ghost" size="sm" onClick={() => {
+                setFilterDateFrom(''); setFilterDateTo(''); setFilterProduct('')
+                setFilterSource(''); setFilterInvoice('')
+              }} className="text-muted-foreground">مسح الفلاتر</Button>
             )}
           </div>
           {isLoading ? (

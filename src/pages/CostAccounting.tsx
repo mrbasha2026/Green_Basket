@@ -178,10 +178,11 @@ function AllocationTab() {
   const { data: pl } = useMonthlyPL(selectedYear, selectedMonth)
   const { mutateAsync: calculate, isPending } = useCalculateCostAllocation()
   const isClosed = pl?.is_closed ?? false
+  const [distMethod, setDistMethod] = useState<'revenue' | 'qty' | 'equal'>('revenue')
 
   async function handleCalculate() {
     try {
-      await calculate({ year: selectedYear, month: selectedMonth })
+      await calculate({ year: selectedYear, month: selectedMonth, distMethod })
       toast.success('تم حساب التوزيع بنجاح')
     } catch {
       toast.error('حدث خطأ أثناء الحساب')
@@ -221,11 +222,23 @@ function AllocationTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Button onClick={handleCalculate} disabled={isPending || isClosed} className="gap-2">
-          <Calculator className="w-4 h-4" />
-          {isPending ? 'جاري الحساب...' : 'احسب التوزيع الآن'}
-        </Button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Select value={distMethod} onValueChange={v => setDistMethod(v as 'revenue' | 'qty' | 'equal')}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="revenue">توزيع حسب الإيراد</SelectItem>
+              <SelectItem value="qty">توزيع حسب الكمية</SelectItem>
+              <SelectItem value="equal">توزيع متساوٍ</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={handleCalculate} disabled={isPending || isClosed} className="gap-2">
+            <Calculator className="w-4 h-4" />
+            {isPending ? 'جاري الحساب...' : 'احسب التوزيع'}
+          </Button>
+        </div>
         {isClosed && (
           <span className="text-sm text-warning flex items-center gap-1">
             <Lock className="w-3 h-3" /> الشهر مغلق
@@ -266,34 +279,28 @@ function PLTab() {
 
   async function handleExportPDF() {
     if (!pl) return
-    const { jsPDF } = await import('jspdf')
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    doc.setFont('helvetica')
-    doc.setFontSize(16)
-    doc.text(`P&L Report - ${monthName(selectedMonth)} ${selectedYear}`, 20, 20)
-    let y = 35
-    const line = (label: string, value: number, bold = false) => {
-      doc.setFontSize(bold ? 12 : 10)
-      doc.text(label, 20, y)
-      doc.text(formatNumber(value), 150, y)
-      y += 7
+    const el = document.getElementById('pl-report-content')
+    if (!el) return
+    try {
+      const { jsPDF } = await import('jspdf')
+      const html2canvas = (await import('html2canvas')).default
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        backgroundColor: getComputedStyle(document.documentElement)
+          .getPropertyValue('--background').trim() || '#ffffff',
+        useCORS: true,
+      })
+      const imgData = canvas.toDataURL('image/png')
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const margin = 10
+      const imgWidth = pageWidth - 2 * margin
+      const imgHeight = (canvas.height / canvas.width) * imgWidth
+      doc.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight)
+      doc.save(`P&L-${selectedYear}-${selectedMonth}.pdf`)
+    } catch {
+      toast.error('حدث خطأ أثناء التصدير')
     }
-    if (pl) {
-      line('الإيرادات', pl.total_revenue, true)
-      line('تكلفة البضاعة المباعة', -pl.total_purchase_cost)
-      line('تكلفة الهدر', -pl.total_waste_cost)
-      line('مجمل الربح', pl.gross_profit, true)
-      y += 3
-      line('رواتب الموظفين', -pl.overhead_salaries)
-      line('إيجار المستودع', -pl.overhead_rent)
-      line('كهرباء ومبردات', -pl.overhead_utilities)
-      line('نقل وتوصيل', -pl.overhead_transport)
-      line('مصاريف أخرى', -pl.overhead_other)
-      line('إجمالي التكاليف غير المباشرة', -pl.total_overhead, true)
-      y += 3
-      line('صافي الربح', pl.net_profit, true)
-    }
-    doc.save(`P&L-${selectedYear}-${selectedMonth}.pdf`)
   }
 
   if (isLoading) return <Skeleton className="h-96" />
@@ -332,7 +339,7 @@ function PLTab() {
         </div>
       )}
 
-      <div className="rounded-lg border border-border overflow-hidden">
+      <div id="pl-report-content" className="rounded-lg border border-border overflow-hidden">
         <div className="bg-primary p-3 text-primary-foreground font-bold text-center">
           قائمة الدخل — {monthName(selectedMonth)} {selectedYear}
         </div>

@@ -227,6 +227,17 @@ export interface CostAllocationResult {
   contribution_margin_pct: number
 }
 
+export interface CustomerProductPrice {
+  id: string
+  customer_id: string
+  product_id: string
+  price_per_kg: number
+  created_at: string
+  updated_at: string
+  customer?: Customer
+  product?: Product
+}
+
 export interface MonthlyPLResult {
   total_revenue: number
   total_purchase_cost: number

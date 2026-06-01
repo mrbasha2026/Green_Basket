@@ -13,6 +13,8 @@ import { useProducts } from '@/hooks/useProducts'
 import { useCustomers } from '@/hooks/useCustomers'
 import { useSales, useUpsertSales } from '@/hooks/useSales'
 import { useInventoryDaily } from '@/hooks/useInventory'
+import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
+import { useCustomerPrices } from '@/hooks/useCustomerPrices'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Sale, SaleFormRow } from '@/types'
 import { cn } from '@/lib/utils'
@@ -38,11 +40,15 @@ export default function Sales() {
   const { data: products } = useProducts()
   const { data: customers } = useCustomers()
   const { data: inventory } = useInventoryDaily(selectedDate)
+  const { data: latestCosts } = useLatestPurchaseCosts(selectedDate)
+  const { data: defaultPrices } = useCustomerPrices(selectedCustomer || undefined)
   const { data: sales, isLoading } = useSales(filterCustomer ? { customerId: filterCustomer } : undefined)
   const { mutateAsync: upsert, isPending } = useUpsertSales()
 
   function getWAC(productId: string): number {
-    return inventory?.find(i => i.product_id === productId)?.weighted_avg_cost ?? 0
+    return inventory?.find(i => i.product_id === productId)?.weighted_avg_cost
+      || latestCosts?.[productId]
+      || 0
   }
 
   function updateRow(i: number, field: keyof SaleFormRow, value: string | number) {
@@ -50,7 +56,13 @@ export default function Sales() {
       if (idx !== i) return r
       const updated = { ...r, [field]: value }
       if (field === 'product_id') {
-        updated.wac = getWAC(value as string)
+        const wacValue = getWAC(value as string)
+        updated.wac = wacValue
+        updated.purchase_price_per_kg = wacValue
+        const defaultPrice = defaultPrices?.find(p => p.product_id === value)?.price_per_kg
+        if (defaultPrice && defaultPrice > 0) {
+          updated.price_per_kg = defaultPrice
+        }
       }
       return updated
     }))
@@ -66,7 +78,7 @@ export default function Sales() {
         customer_id: selectedCustomer,
         date: selectedDate,
         qty_kg: r.qty_kg,
-        purchase_price_per_kg: r.purchase_price_per_kg,
+        purchase_price_per_kg: r.wac ?? getWAC(r.product_id),
         price_per_kg: r.price_per_kg,
         source: 'web' as const,
       })))
@@ -117,6 +129,8 @@ export default function Sales() {
 
   const hasFilters = filterCustomer || filterProduct || filterDateFrom || filterDateTo || filterSource
 
+  const totalAmount = rows.reduce((s, r) => s + r.qty_kg * r.price_per_kg, 0)
+
   return (
     <div className="space-y-6">
       <Card>
@@ -138,7 +152,7 @@ export default function Sales() {
                   <div className="grid grid-cols-2 gap-4 max-w-sm">
                     <div className="space-y-2">
                       <Label>العميل</Label>
-                      <Select value={selectedCustomer} onValueChange={v => setSelectedCustomer(v ?? '')}>
+                      <Select value={selectedCustomer} onValueChange={v => { setSelectedCustomer(v ?? ''); setRows([emptyRow()]) }}>
                         <SelectTrigger>
                           <SelectValue placeholder="اختر العميل" />
                         </SelectTrigger>
@@ -164,7 +178,7 @@ export default function Sales() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border bg-muted/50">
-                            {['الصنف','الكمية(كج)','WAC','سعر البيع','هامش ريال','هامش%'].map(h => (
+                            {['الصنف','الكمية(كج)','التكلفة/كج','سعر البيع','الإجمالي','هامش ريال','هامش%'].map(h => (
                               <th key={h} className="px-3 py-2 text-right font-medium text-muted-foreground">{h}</th>
                             ))}
                             <th className="px-3 py-2"></th>
@@ -172,7 +186,7 @@ export default function Sales() {
                         </thead>
                         <tbody>
                           {rows.map((r, i) => {
-                            const wac = r.wac ?? getWAC(r.product_id)
+                            const wac = getWAC(r.product_id)
                             const margin = r.qty_kg * (r.price_per_kg - wac)
                             const marginPct = r.qty_kg * r.price_per_kg > 0
                               ? (margin / (r.qty_kg * r.price_per_kg)) * 100 : 0
@@ -193,9 +207,14 @@ export default function Sales() {
                                 <td className="px-2 py-1.5">
                                   <Input type="number" min="0" step="0.01" value={r.qty_kg || ''} onChange={e => updateRow(i, 'qty_kg', parseFloat(e.target.value) || 0)} className="w-20 text-sm" dir="ltr" />
                                 </td>
-                                <td className="px-2 py-1.5 text-muted-foreground">{formatNumber(wac)}</td>
+                                <td className="px-2 py-1.5 text-muted-foreground min-w-16">
+                                  {wac > 0 ? formatNumber(wac) : <span className="text-xs">—</span>}
+                                </td>
                                 <td className="px-2 py-1.5">
                                   <Input type="number" min="0" step="0.01" value={r.price_per_kg || ''} onChange={e => updateRow(i, 'price_per_kg', parseFloat(e.target.value) || 0)} className="w-20 text-sm" dir="ltr" />
+                                </td>
+                                <td className="px-2 py-1.5 font-medium text-foreground">
+                                  {formatNumber(r.qty_kg * r.price_per_kg)}
                                 </td>
                                 <td className={cn('px-2 py-1.5 font-medium', margin >= 0 ? 'text-success' : 'text-danger')}>
                                   {formatNumber(margin)}
@@ -212,7 +231,15 @@ export default function Sales() {
                         </tbody>
                       </table>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => setRows(prev => [...prev, emptyRow()])}>+ إضافة صنف</Button>
+                    <div className="flex items-center justify-between">
+                      <Button variant="outline" size="sm" onClick={() => setRows(prev => [...prev, emptyRow()])}>+ إضافة صنف</Button>
+                      {totalAmount > 0 && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-lg">
+                          <span className="text-sm text-muted-foreground">الإجمالي:</span>
+                          <span className="font-bold text-primary">{formatNumber(totalAmount)} ر.س</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ),
               },
@@ -264,7 +291,6 @@ export default function Sales() {
           <CardTitle className="text-base">سجل المبيعات</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Filters */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
             <Select value={filterCustomer} onValueChange={v => setFilterCustomer(v ?? '')}>
               <SelectTrigger><SelectValue placeholder="كل العملاء" /></SelectTrigger>

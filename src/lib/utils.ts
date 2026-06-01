@@ -28,6 +28,12 @@ export function formatInt(value: number): string {
 
 const RIYADH_TZ = 'Asia/Riyadh'
 
+export function formatDateTime(date: string | Date): string {
+  const d = typeof date === 'string' ? parseISO(date) : date
+  const riyadh = toZonedTime(d, RIYADH_TZ)
+  return format(riyadh, 'dd/MM/yyyy HH:mm')
+}
+
 export function formatDate(date: string | Date): string {
   const d = typeof date === 'string' ? parseISO(date) : date
   const riyadh = toZonedTime(d, RIYADH_TZ)
