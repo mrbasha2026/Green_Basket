@@ -8,15 +8,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useAllUsers, useUpsertUserRole, usePermission, type AppRole } from '@/hooks/usePermissions'
 import { useAllProducts, useUpsertProduct } from '@/hooks/useProducts'
 import { useAllCustomers, useUpsertCustomer } from '@/hooks/useCustomers'
 import { useCostCategories, useUpsertCostCategory } from '@/hooks/useOverhead'
 import { useCustomerPrices, useUpsertCustomerPrices } from '@/hooks/useCustomerPrices'
 import { useProducts } from '@/hooks/useProducts'
 import { useCustomers } from '@/hooks/useCustomers'
+import { useUpsertInventory, useInventoryDaily, useDeleteInventory } from '@/hooks/useInventory'
+import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import type { Product, Customer, CostCategory } from '@/types'
-import { Plus, Pencil } from 'lucide-react'
-import { formatNumber } from '@/lib/utils'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 
 // Products Tab
 function ProductsTab() {
@@ -445,6 +448,145 @@ function DefaultPricesTab() {
   )
 }
 
+// Opening Balance Tab
+function OpeningBalanceTab() {
+  const { data: products } = useProducts()
+  const { data: latestCosts } = useLatestPurchaseCosts()
+  const [date, setDate] = useState(() => {
+    const d = new Date(todayISO() + 'T12:00:00')
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  })
+  const [balances, setBalances] = useState<Record<string, { qty: string; cost: string }>>({})
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editQty, setEditQty] = useState('')
+  const [editCost, setEditCost] = useState('')
+  const { data: existing } = useInventoryDaily(date)
+  const { mutateAsync: upsert, isPending: isSaving } = useUpsertInventory()
+  const { mutateAsync: del } = useDeleteInventory()
+
+  async function handleSave() {
+    const rows = Object.entries(balances)
+      .filter(([, v]) => parseFloat(v.qty) > 0)
+      .map(([pid, v]) => {
+        const qty = parseFloat(v.qty) || 0
+        const cost = parseFloat(v.cost) || (latestCosts?.[pid] ?? 0)
+        return { product_id: pid, date, opening_stock_kg: qty, opening_cost_per_kg: cost, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: cost }
+      })
+    if (rows.length === 0) { toast.error('أدخل كمية واحدة على الأقل'); return }
+    try { await upsert(rows); toast.success(`تم حفظ ${rows.length} صنف`); setBalances({}) }
+    catch { toast.error('حدث خطأ') }
+  }
+
+  async function handleUpdate(pid: string) {
+    const qty = parseFloat(editQty); const cost = parseFloat(editCost)
+    if (isNaN(qty) || qty < 0) return
+    try {
+      await upsert([{ product_id: pid, date, opening_stock_kg: qty, opening_cost_per_kg: cost || 0, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: cost || 0 }])
+      toast.success('تم التعديل'); setEditId(null)
+    } catch { toast.error('حدث خطأ') }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-1">
+        <Label>تاريخ الرصيد الافتتاحي</Label>
+        <Input type="date" value={date} onChange={e => { setDate(e.target.value); setBalances({}) }} className="w-48" dir="ltr" />
+        <p className="text-xs text-muted-foreground">يُدخل الرصيد الافتتاحي مرة واحدة فقط في بداية استخدام النظام</p>
+      </div>
+
+      {(existing ?? []).length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <div className="bg-muted/50 px-3 py-2 border-b border-border">
+            <p className="text-sm font-medium">الأرصدة المحفوظة — {formatDate(date)}</p>
+          </div>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border">
+              {['الصنف','الفئة','الكمية (كج)','التكلفة/كج',''].map(h => (
+                <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {(existing ?? []).map(j => (
+                <tr key={j.product_id} className="border-b last:border-b-0 border-border/50">
+                  <td className="px-3 py-2 font-medium">{j.product?.name_ar ?? j.product_id}</td>
+                  <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{j.product?.category}</Badge></td>
+                  <td className="px-3 py-2">
+                    {editId === j.product_id
+                      ? <Input type="number" min="0" step="0.01" value={editQty} onChange={e => setEditQty(e.target.value)} className="w-24 text-sm" dir="ltr" autoFocus />
+                      : <span className="font-medium">{formatNumber(j.opening_stock_kg)}</span>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {editId === j.product_id
+                      ? <Input type="number" min="0" step="0.01" value={editCost} onChange={e => setEditCost(e.target.value)} className="w-24 text-sm" dir="ltr" />
+                      : formatNumber(j.weighted_avg_cost)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {editId === j.product_id ? (
+                      <div className="flex gap-1">
+                        <Button size="sm" onClick={() => handleUpdate(j.product_id)} disabled={isSaving}>حفظ</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditId(null)}>إلغاء</Button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditId(j.product_id); setEditQty(String(j.opening_stock_kg)); setEditCost(String(j.weighted_avg_cost)) }}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:text-danger" onClick={() => del({ product_id: j.product_id, date }).then(() => toast.success('تم الحذف'))}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-border overflow-hidden">
+        <div className="bg-muted/50 px-3 py-2 border-b border-border flex items-center justify-between">
+          <p className="text-sm font-medium">إضافة أصناف جديدة</p>
+          <Button size="sm" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? 'جاري الحفظ...' : 'حفظ الأرصدة'}
+          </Button>
+        </div>
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-border">
+            {['الصنف','الفئة','الكمية (كج)','التكلفة/كج'].map(h => (
+              <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {(products ?? []).map(p => {
+              const isExisting = (existing ?? []).some(j => j.product_id === p.id)
+              if (isExisting) return null
+              return (
+                <tr key={p.id} className="border-b last:border-b-0 border-border/50">
+                  <td className="px-3 py-2 font-medium">{p.name_ar}</td>
+                  <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                  <td className="px-3 py-2">
+                    <Input type="number" min="0" step="0.01" placeholder="0"
+                      value={balances[p.id]?.qty ?? ''}
+                      onChange={e => setBalances(prev => ({ ...prev, [p.id]: { ...prev[p.id], qty: e.target.value, cost: prev[p.id]?.cost ?? String(latestCosts?.[p.id] ?? '') } }))}
+                      className="w-28 text-sm" dir="ltr" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input type="number" min="0" step="0.01" placeholder={String(latestCosts?.[p.id] ?? '0')}
+                      value={balances[p.id]?.cost ?? ''}
+                      onChange={e => setBalances(prev => ({ ...prev, [p.id]: { ...prev[p.id], cost: e.target.value, qty: prev[p.id]?.qty ?? '' } }))}
+                      className="w-28 text-sm" dir="ltr" />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // Site Settings Tab
 const SITE_SETTINGS_KEY = 'gb_site_settings'
 interface SiteSettings { name: string; tagline: string; phone: string; address: string; logo: string }
@@ -489,19 +631,19 @@ function SiteSettingsTab() {
         <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
       </div>
 
-      {[
-        { label: 'اسم المنشأة', key: 'name', placeholder: 'Greenbasket' },
-        { label: 'الوصف / الشعار', key: 'tagline', placeholder: 'نظام إدارة المتجر' },
-        { label: 'رقم الهاتف', key: 'phone', placeholder: '05xxxxxxxx', dir: 'ltr' },
-        { label: 'العنوان', key: 'address', placeholder: 'المدينة، الحي...' },
-      ].map(f => (
+      {([
+        { label: 'اسم المنشأة', key: 'name' as keyof SiteSettings, placeholder: 'Greenbasket' },
+        { label: 'الوصف / الشعار', key: 'tagline' as keyof SiteSettings, placeholder: 'نظام إدارة المتجر' },
+        { label: 'رقم الهاتف', key: 'phone' as keyof SiteSettings, placeholder: '05xxxxxxxx', dir: 'ltr' as const },
+        { label: 'العنوان', key: 'address' as keyof SiteSettings, placeholder: 'المدينة، الحي...' },
+      ]).map(f => (
         <div key={f.key} className="space-y-1">
           <Label>{f.label}</Label>
           <Input
-            value={(settings as Record<string, string>)[f.key]}
+            value={settings[f.key]}
             onChange={e => setSettings(s => ({ ...s, [f.key]: e.target.value }))}
             placeholder={f.placeholder}
-            dir={f.dir as 'ltr' | undefined}
+            dir={f.dir}
           />
         </div>
       ))}
@@ -513,15 +655,86 @@ function SiteSettingsTab() {
   )
 }
 
+// Users Tab
+function UsersTab() {
+  const { data: users, isLoading } = useAllUsers()
+  const { mutateAsync: upsertRole, isPending } = useUpsertUserRole()
+  const canEdit = usePermission('users.edit')
+
+  const ROLE_LABELS: Record<AppRole, string> = {
+    admin: 'مدير',
+    manager: 'مشرف',
+    viewer: 'مشاهد',
+  }
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-4">جاري التحميل...</p>
+
+  return (
+    <div className="space-y-4">
+      {!canEdit && (
+        <div className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
+          أنت في وضع المشاهدة فقط — تغيير الأدوار يتطلب صلاحية مدير
+        </div>
+      )}
+      <div className="text-xs text-muted-foreground space-y-0.5 p-3 bg-muted/30 rounded-lg border border-border/50">
+        <p><strong>مدير:</strong> صلاحيات كاملة + إدارة المستخدمين والإعدادات</p>
+        <p><strong>مشرف:</strong> إضافة وتعديل المشتريات والمبيعات والمخزون</p>
+        <p><strong>مشاهد:</strong> عرض فقط بدون تعديل</p>
+      </div>
+      {(users ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">لا توجد بيانات — تأكد من إعداد جدول user_profiles في Supabase</p>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-muted/50 border-b border-border">
+              {['الاسم','البريد الإلكتروني','الدور',''].map(h => (
+                <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {(users ?? []).map(u => (
+                <tr key={u.id} className="border-b last:border-b-0 border-border/50">
+                  <td className="px-3 py-2 font-medium">{u.name ?? '—'}</td>
+                  <td className="px-3 py-2 text-muted-foreground" dir="ltr">{u.email}</td>
+                  <td className="px-3 py-2">
+                    <Badge variant="outline" className={u.role === 'admin' ? 'text-primary' : u.role === 'manager' ? 'text-warning' : 'text-muted-foreground'}>
+                      {ROLE_LABELS[u.role]}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2">
+                    {canEdit && (
+                      <Select value={u.role} onValueChange={v => upsertRole({ id: u.id, role: v as AppRole, email: u.email, name: u.name })}>
+                        <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">مدير</SelectItem>
+                          <SelectItem value="manager">مشرف</SelectItem>
+                          <SelectItem value="viewer">مشاهد</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {isPending && <p className="text-xs text-muted-foreground">جاري الحفظ...</p>}
+    </div>
+  )
+}
+
 export default function Settings() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="products">الأصناف</TabsTrigger>
           <TabsTrigger value="customers">العملاء</TabsTrigger>
-          <TabsTrigger value="costs">أنواع التكاليف</TabsTrigger>
+          <TabsTrigger value="costs">التكاليف</TabsTrigger>
           <TabsTrigger value="prices">أسعار البيع</TabsTrigger>
+          <TabsTrigger value="opening">الرصيد الافتتاحي</TabsTrigger>
+          <TabsTrigger value="users">المستخدمون</TabsTrigger>
           <TabsTrigger value="site">بيانات الموقع</TabsTrigger>
         </TabsList>
         <TabsContent value="products">
@@ -546,6 +759,18 @@ export default function Settings() {
           <Card>
             <CardHeader><CardTitle className="text-base">أسعار البيع الافتراضية لكل عميل</CardTitle></CardHeader>
             <CardContent><DefaultPricesTab /></CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="opening">
+          <Card>
+            <CardHeader><CardTitle className="text-base">الرصيد الافتتاحي للمخزون</CardTitle></CardHeader>
+            <CardContent><OpeningBalanceTab /></CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="users">
+          <Card>
+            <CardHeader><CardTitle className="text-base">إدارة المستخدمين والصلاحيات</CardTitle></CardHeader>
+            <CardContent><UsersTab /></CardContent>
           </Card>
         </TabsContent>
         <TabsContent value="site">

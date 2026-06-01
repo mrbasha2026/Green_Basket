@@ -40,10 +40,8 @@ export function PieChart({ data, height = 300 }: PieChartProps) {
           ))}
         </Pie>
         <Tooltip
-          formatter={(v: unknown, name: unknown) => [
-            `${formatNumber(v as number)} (${total > 0 ? ((v as number / total) * 100).toFixed(1) : 0}%)`,
-            name,
-          ]}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter={(v: any) => `${formatNumber(v as number)} (${total > 0 ? ((v as number / total) * 100).toFixed(1) : 0}%)`}
           contentStyle={TOOLTIP_STYLE}
         />
         <Legend

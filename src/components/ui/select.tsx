@@ -204,14 +204,15 @@ function SelectItem({
   const isSelected = selected === value
 
   React.useLayoutEffect(() => {
-    const text =
-      typeof children === "string"
-        ? children
-        : typeof children === "number"
-          ? String(children)
-          : (children as React.ReactElement)?.props?.children
-              ? String((children as React.ReactElement).props.children)
-              : ""
+    let text = ""
+    if (typeof children === "string") text = children
+    else if (typeof children === "number") text = String(children)
+    else {
+      const el = children as { props?: { children?: unknown } } | null
+      const inner = el?.props?.children
+      if (typeof inner === "string") text = inner
+      else if (typeof inner === "number") text = String(inner)
+    }
     if (text) registerLabel(value, text)
   })
 
@@ -230,11 +231,12 @@ function SelectItem({
         className,
       )}
       onClick={() => {
+        const ch = children as React.ReactNode
         const text =
-          typeof children === "string"
-            ? children
-            : typeof children === "number"
-              ? String(children)
+          typeof ch === "string"
+            ? ch
+            : typeof ch === "number"
+              ? String(ch)
               : ""
         if (text) registerLabel(value, text)
         onValueChange(value)

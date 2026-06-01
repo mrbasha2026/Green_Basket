@@ -15,6 +15,7 @@ import { calcCostPerKg } from '@/lib/calculations'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Purchase, PurchaseFormRow } from '@/types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Combobox } from '@/components/ui/combobox'
 import { cn } from '@/lib/utils'
 import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
 import { FileDown, Upload } from 'lucide-react'
@@ -31,6 +32,7 @@ export default function Purchases() {
   const [step, setStep] = useState(0)
   const [selectedDate, setSelectedDate] = useState(todayISO())
   const [invoiceType, setInvoiceType] = useState<'مع_فاتورة' | 'بدون_فاتورة'>('مع_فاتورة')
+  const [transportCost, setTransportCost] = useState(0)
   const [rows, setRows] = useState<PurchaseFormRow[]>([emptyRow()])
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
@@ -102,24 +104,27 @@ export default function Purchases() {
       return
     }
     try {
-      await upsert(valid.map(r => ({
-        product_id: r.product_id,
-        date: selectedDate,
-        cartons_qty: r.cartons_qty,
-        price_per_carton: r.price_per_carton,
-        weight_per_carton: r.weight_per_carton,
-        waste_kg: 0,
-        cost_per_kg: calcCostPerKg(
-          r.cartons_qty * r.price_per_carton,
-          r.cartons_qty * r.weight_per_carton,
-          0
-        ),
-        source: 'web' as const,
-        notes: invoiceType,
-      })))
+      const totalWeight = valid.reduce((s, r) => s + r.cartons_qty * r.weight_per_carton, 0)
+      await upsert(valid.map(r => {
+        const weight = r.cartons_qty * r.weight_per_carton
+        const cost = r.cartons_qty * r.price_per_carton
+        const transportShare = totalWeight > 0 ? (weight / totalWeight) * transportCost : 0
+        return {
+          product_id: r.product_id,
+          date: selectedDate,
+          cartons_qty: r.cartons_qty,
+          price_per_carton: r.price_per_carton,
+          weight_per_carton: r.weight_per_carton,
+          waste_kg: 0,
+          cost_per_kg: calcCostPerKg(cost + transportShare, weight, 0),
+          source: 'web' as const,
+          notes: invoiceType,
+        }
+      }))
       toast.success('تم حفظ المشتريات بنجاح')
       setStep(0)
       setRows([emptyRow()])
+      setTransportCost(0)
     } catch {
       toast.error('حدث خطأ أثناء الحفظ')
     }
@@ -208,6 +213,18 @@ export default function Purchases() {
                         ))}
                       </div>
                     </div>
+                    <div className="space-y-2">
+                      <Label>مصاريف النقل (ر.س) — تُوزَّع على الأصناف بنسبة الوزن</Label>
+                      <Input
+                        type="number" min="0" step="0.01" placeholder="0"
+                        value={transportCost || ''}
+                        onChange={e => setTransportCost(parseFloat(e.target.value) || 0)}
+                        dir="ltr"
+                      />
+                      {transportCost > 0 && (
+                        <p className="text-xs text-primary">سيتم توزيع {transportCost} ر.س على تكلفة الأصناف بنسبة أوزانها</p>
+                      )}
+                    </div>
                   </div>
                 ),
               },
@@ -233,19 +250,14 @@ export default function Purchases() {
                             return (
                               <tr key={i} className="border-b border-border/50">
                                 <td className="px-2 py-1.5">
-                                  <Select
+                                  <Combobox
+                                    className="w-44"
+                                    options={(products ?? []).map(p => ({ value: p.id, label: p.name_ar, sub: p.category }))}
                                     value={r.product_id}
-                                    onValueChange={v => updateRow(i, 'product_id', v ?? '')}
-                                  >
-                                    <SelectTrigger className="w-36 text-sm">
-                                      <SelectValue placeholder="اختر" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {products?.map(p => (
-                                        <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                    onValueChange={v => updateRow(i, 'product_id', v)}
+                                    placeholder="اختر صنف"
+                                    searchPlaceholder="بحث عن صنف..."
+                                  />
                                 </td>
                                 {(['cartons_qty','price_per_carton','weight_per_carton'] as const).map(field => (
                                   <td key={field} className="px-2 py-1.5">
@@ -276,7 +288,12 @@ export default function Purchases() {
                         </tbody>
                       </table>
                     </div>
-                    <Button variant="outline" size="sm" onClick={addRow}>+ إضافة صنف</Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={addRow}>+ إضافة صنف</Button>
+                      <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
+                        <Upload className="w-4 h-4" /> استيراد من Excel
+                      </Button>
+                    </div>
                   </div>
                 ),
               },
@@ -337,17 +354,7 @@ export default function Purchases() {
       {/* History */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>سجل المشتريات</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1" onClick={handleDownloadTemplate}>
-                <FileDown className="w-4 h-4" /> نموذج Excel
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
-                <Upload className="w-4 h-4" /> استيراد Excel
-              </Button>
-            </div>
-          </CardTitle>
+          <CardTitle className="text-base">سجل المشتريات</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Import dialog */}

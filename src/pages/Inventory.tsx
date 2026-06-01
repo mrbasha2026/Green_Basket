@@ -7,10 +7,9 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTable } from '@/components/tables/DataTable'
-import { useEarliestInventory, useInventoryRange, useUpsertInventory } from '@/hooks/useInventory'
+import { useEarliestInventory, useInventoryRange, useInventoryDaily, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWasteByRange } from '@/hooks/useWaste'
@@ -20,7 +19,7 @@ import { exportToExcel } from '@/lib/excel'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Product } from '@/types'
 import { cn } from '@/lib/utils'
-import { AlertTriangle, Search, FileDown } from 'lucide-react'
+import { AlertTriangle, Search, FileDown, Trash2, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 interface InventoryBalance {
@@ -64,17 +63,12 @@ export default function Inventory() {
   const [appliedRFrom, setAppliedRFrom] = useState<string | null>(null)
   const [appliedRTo, setAppliedRTo] = useState<string | null>(null)
 
-  // ── Tab 3: جرد ───────────────────────────────────────────────────────────
-  const [jardCounts, setJardCounts] = useState<Record<string, string>>({})
-  const [jardFrom, setJardFrom] = useState(firstOfMonth())
-  const [jardTo, setJardTo] = useState(todayISO())
-  const [appliedJardFrom, setAppliedJardFrom] = useState<string | null>(null)
-  const [appliedJardTo, setAppliedJardTo] = useState<string | null>(null)
+  // ── Tab 3: جرد (Physical count) ─────────────────────────────────────────
+  const [jardDate, setJardDate] = useState(todayISO())
+  const [jardEditId, setJardEditId] = useState<string | null>(null)
+  const [jardEditQty, setJardEditQty] = useState('')
+  const [jardInputs, setJardInputs] = useState<Record<string, string>>({})
 
-  // ── Opening dialog ────────────────────────────────────────────────────────
-  const [openingDialog, setOpeningDialog] = useState(false)
-  const [openingDate, setOpeningDate] = useState(firstOfMonth())
-  const [openingBalances, setOpeningBalances] = useState<Record<string, { qty: string; cost: string }>>({})
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function handleBalanceSearch() {
@@ -85,11 +79,48 @@ export default function Inventory() {
     if (!reportFrom || !reportTo) return
     setAppliedRFrom(reportFrom); setAppliedRTo(reportTo)
   }
-  function handleJardSearch() {
-    if (!jardFrom || !jardTo) return
-    setAppliedFrom(jardFrom); setAppliedTo(jardTo)
-    setAppliedJardFrom(jardFrom); setAppliedJardTo(jardTo)
-    setFromDate(jardFrom); setToDate(jardTo)
+  async function handleSaveJardNew() {
+    const rows = Object.entries(jardInputs)
+      .filter(([, v]) => v !== '' && parseFloat(v) >= 0)
+      .map(([pid, v]) => {
+        const qty = parseFloat(v)
+        const wac = latestCosts?.[pid] ?? 0
+        return {
+          product_id: pid, date: jardDate,
+          opening_stock_kg: qty, opening_cost_per_kg: wac,
+          purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0,
+          closing_stock_kg: qty, weighted_avg_cost: wac,
+        }
+      })
+    if (rows.length === 0) { toast.error('أدخل كمية واحدة على الأقل'); return }
+    try {
+      await upsertInventory(rows)
+      toast.success(`تم حفظ ${rows.length} صنف`)
+      setJardInputs({})
+    } catch { toast.error('حدث خطأ') }
+  }
+
+  async function handleDeleteJard(product_id: string) {
+    try {
+      await deleteInventory({ product_id, date: jardDate })
+      toast.success('تم الحذف')
+    } catch { toast.error('حدث خطأ') }
+  }
+
+  async function handleUpdateJard(product_id: string) {
+    const qty = parseFloat(jardEditQty)
+    if (isNaN(qty) || qty < 0) return
+    const wac = latestCosts?.[product_id] ?? 0
+    try {
+      await upsertInventory([{
+        product_id, date: jardDate,
+        opening_stock_kg: qty, opening_cost_per_kg: wac,
+        purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0,
+        closing_stock_kg: qty, weighted_avg_cost: wac,
+      }])
+      toast.success('تم التعديل')
+      setJardEditId(null); setJardEditQty('')
+    } catch { toast.error('حدث خطأ') }
   }
 
   // ── Query dates ───────────────────────────────────────────────────────────
@@ -101,6 +132,8 @@ export default function Inventory() {
   const { data: earliest, isLoading: eL } = useEarliestInventory()
   const { data: products } = useProducts()
   const { mutateAsync: upsertInventory, isPending: isSaving } = useUpsertInventory()
+  const { mutateAsync: deleteInventory } = useDeleteInventory()
+  const { data: jardExisting } = useInventoryDaily(jardDate)
 
   const { data: purchasesBefore, isLoading: pbL } = usePurchasesByRange('2000-01-01', dayBefore)
   const { data: salesBefore, isLoading: sbL } = useSalesByRange('2000-01-01', dayBefore)
@@ -214,12 +247,6 @@ export default function Inventory() {
     }).sort((a, b) => b.date.localeCompare(a.date) || a.product_name.localeCompare(b.product_name))
   }, [appliedRFrom, invRange, movPurchases, movSales, movWaste, latestCosts, products, reportProduct, reportType, reportCategory])
 
-  // ── جرد data ──────────────────────────────────────────────────────────────
-  const jardRows = useMemo(() => inventoryBalance.map(b => {
-    const actual = parseFloat(jardCounts[b.product_id] ?? '') || null
-    const variance = actual !== null ? actual - b.closing_stock_kg : null
-    return { ...b, actual, variance }
-  }), [inventoryBalance, jardCounts])
 
   // ── Columns ───────────────────────────────────────────────────────────────
   const balCols = useMemo<ColumnDef<InventoryBalance>[]>(() => [
@@ -252,31 +279,6 @@ export default function Inventory() {
     { accessorKey: 'total', header: 'الإجمالي (ر.س)', cell: ({ getValue }) => { const v = getValue() as number; return v > 0 ? <span className="font-medium">{formatNumber(v)}</span> : '—' } },
   ], [])
 
-  // ── Opening balance save ──────────────────────────────────────────────────
-  async function handleSaveOpening() {
-    const rows = Object.entries(openingBalances).filter(([, v]) => parseFloat(v.qty) > 0).map(([pid, v]) => {
-      const qty = parseFloat(v.qty) || 0; const cost = parseFloat(v.cost) || 0
-      return { product_id: pid, date: openingDate, opening_stock_kg: qty, opening_cost_per_kg: cost, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: cost }
-    })
-    if (rows.length === 0) { toast.error('أدخل كمية واحدة على الأقل'); return }
-    try { await upsertInventory(rows); toast.success('تم حفظ الرصيد الافتتاحي'); setOpeningDialog(false); setOpeningBalances({}) }
-    catch { toast.error('حدث خطأ') }
-  }
-
-  // ── جرد save ──────────────────────────────────────────────────────────────
-  async function handleSaveJard() {
-    const date = appliedTo ?? todayISO()
-    const rows = jardRows.filter(r => r.actual !== null && r.actual >= 0).map(r => ({
-      product_id: r.product_id, date,
-      opening_stock_kg: r.actual!, opening_cost_per_kg: r.weighted_avg_cost,
-      purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0,
-      closing_stock_kg: r.actual!, weighted_avg_cost: r.weighted_avg_cost,
-    }))
-    if (rows.length === 0) { toast.error('أدخل كميات الجرد أولاً'); return }
-    try { await upsertInventory(rows); toast.success(`تم حفظ الجرد (${rows.length} صنف)`) }
-    catch { toast.error('حدث خطأ') }
-  }
-
   // ── Excel exports ─────────────────────────────────────────────────────────
   function exportBalance() {
     exportToExcel(`inventory-balance-${appliedTo}.xlsx`,
@@ -292,13 +294,6 @@ export default function Inventory() {
     )
   }
 
-  function exportJard() {
-    exportToExcel(`jard-${appliedTo ?? todayISO()}.xlsx`,
-      ['الصنف','الفئة','المتوقع(كج)','الفعلي(كج)','الفرق','الفرق%'],
-      jardRows.map(r => [r.product?.name_ar ?? '', r.product?.category ?? '', r.closing_stock_kg, r.actual ?? '', r.variance ?? '', r.closing_stock_kg > 0 && r.variance !== null ? ((r.variance / r.closing_stock_kg) * 100).toFixed(1) + '%' : ''])
-    )
-  }
-
   return (
     <div className="space-y-6">
       <Tabs defaultValue="current">
@@ -308,9 +303,6 @@ export default function Inventory() {
             <TabsTrigger value="movement">حركات المخزون</TabsTrigger>
             <TabsTrigger value="jard">جرد المخزون</TabsTrigger>
           </TabsList>
-          <Button variant="outline" size="sm" onClick={() => { setOpeningDate(fromDate); setOpeningBalances({}); setOpeningDialog(true) }}>
-            إدخال رصيد افتتاحي
-          </Button>
         </div>
 
         {/* ── Tab 1: Balance ──────────────────────────────────────────────── */}
@@ -418,111 +410,116 @@ export default function Inventory() {
         {/* ── Tab 3: جرد ──────────────────────────────────────────────────── */}
         <TabsContent value="jard">
           <div className="space-y-6 mt-4">
-            <>
-                <Card><CardContent className="pt-5">
-                  <div className="flex items-end gap-3 flex-wrap">
-                    <div className="space-y-1"><Label>من</Label><Input type="date" value={jardFrom} onChange={e => setJardFrom(e.target.value)} className="w-40" dir="ltr" /></div>
-                    <div className="space-y-1"><Label>إلى</Label><Input type="date" value={jardTo} onChange={e => setJardTo(e.target.value)} className="w-40" dir="ltr" /></div>
-                    <Button onClick={handleJardSearch} className="gap-2"><Search className="w-4 h-4" /> عرض الجرد</Button>
-                  </div>
-                </CardContent></Card>
+            {/* Date selector */}
+            <Card><CardContent className="pt-5">
+              <div className="flex items-end gap-3 flex-wrap">
+                <div className="space-y-1">
+                  <Label>تاريخ الجرد</Label>
+                  <Input type="date" value={jardDate} onChange={e => { setJardDate(e.target.value); setJardInputs({}) }} className="w-44" dir="ltr" />
+                </div>
+                <p className="text-sm text-muted-foreground pb-1">أدخل الكميات الفعلية لكل صنف في المخزن وقت الجرد</p>
+              </div>
+            </CardContent></Card>
 
-                {!appliedJardFrom && appliedFrom === null && (
-                  <p className="text-center py-12 text-muted-foreground text-sm">حدد الفترة واضغط <strong>عرض الجرد</strong></p>
-                )}
-
-              {(appliedJardFrom || appliedFrom) && (
-              <>
-                <Card><CardContent className="pt-5">
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <p className="text-sm text-muted-foreground">مقارنة الرصيد المتوقع بالعدد الفعلي — الفترة: <strong>{formatDate(appliedFrom!)} إلى {formatDate(appliedTo!)}</strong></p>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={exportJard} className="gap-1"><FileDown className="w-4 h-4" />Excel</Button>
-                      <Button size="sm" onClick={handleSaveJard} disabled={isSaving}>
-                        {isSaving ? 'جاري الحفظ...' : 'حفظ الجرد كرصيد جديد'}
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent></Card>
-
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/50">
-                            {['الصنف','الفئة','الرصيد المتوقع (كج)','العدد الفعلي (كج)','الفرق','الفرق%','الحالة'].map(h => (
-                              <th key={h} className="px-3 py-2 text-right font-medium text-muted-foreground whitespace-nowrap">{h}</th>
-                            ))}
+            {/* Saved جرد records for this date */}
+            {(jardExisting ?? []).length > 0 && (
+              <Card>
+                <CardHeader><CardTitle className="text-sm flex items-center justify-between">
+                  <span>سجلات الجرد المحفوظة — {formatDate(jardDate)}</span>
+                  <Button variant="outline" size="sm" className="gap-1" onClick={() => exportToExcel(`jard-${jardDate}.xlsx`,
+                    ['الصنف','الكمية (كج)','التكلفة/كج','القيمة'],
+                    (jardExisting ?? []).map(j => [j.product?.name_ar ?? j.product_id, j.opening_stock_kg, j.weighted_avg_cost, j.opening_stock_kg * j.weighted_avg_cost])
+                  )}><FileDown className="w-4 h-4" />Excel</Button>
+                </CardTitle></CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-border bg-muted/50">
+                        {['الصنف','الفئة','الكمية (كج)','التكلفة/كج','القيمة',''].map(h => (
+                          <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {(jardExisting ?? []).map(j => (
+                          <tr key={j.product_id} className="border-b last:border-b-0 border-border/50">
+                            <td className="px-3 py-2 font-medium">{j.product?.name_ar ?? j.product_id}</td>
+                            <td className="px-3 py-2 text-muted-foreground"><Badge variant="outline" className="text-xs">{j.product?.category}</Badge></td>
+                            <td className="px-3 py-2">
+                              {jardEditId === j.product_id ? (
+                                <Input type="number" min="0" step="0.01" value={jardEditQty} onChange={e => setJardEditQty(e.target.value)} className="w-24 text-sm" dir="ltr" autoFocus />
+                              ) : <span className="font-medium">{formatNumber(j.opening_stock_kg)}</span>}
+                            </td>
+                            <td className="px-3 py-2">{formatNumber(j.weighted_avg_cost)}</td>
+                            <td className="px-3 py-2">{formatNumber(j.opening_stock_kg * j.weighted_avg_cost)}</td>
+                            <td className="px-3 py-2">
+                              {jardEditId === j.product_id ? (
+                                <div className="flex gap-1">
+                                  <Button size="sm" onClick={() => handleUpdateJard(j.product_id)} disabled={isSaving}>حفظ</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => { setJardEditId(null); setJardEditQty('') }}>إلغاء</Button>
+                                </div>
+                              ) : (
+                                <div className="flex gap-1">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setJardEditId(j.product_id); setJardEditQty(String(j.opening_stock_kg)) }}>
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:text-danger" onClick={() => handleDeleteJard(j.product_id)}>
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {jardRows.map(r => {
-                            const diff = r.variance
-                            const diffPct = r.closing_stock_kg > 0 && diff !== null ? (diff / r.closing_stock_kg) * 100 : null
-                            const status = diff === null ? '' : diff === 0 ? '✅ مطابق' : Math.abs(diff) < 2 ? '🟡 فرق صغير' : '🔴 فرق كبير'
-                            return (
-                              <tr key={r.product_id} className={cn('border-b border-border/50', diff !== null && Math.abs(diff) >= 2 ? 'bg-danger/5' : diff !== null && diff !== 0 ? 'bg-warning/5' : '')}>
-                                <td className="px-3 py-2 font-medium">{r.product?.name_ar}</td>
-                                <td className="px-3 py-2 text-muted-foreground">{r.product?.category}</td>
-                                <td className="px-3 py-2 font-medium">{formatNumber(r.closing_stock_kg)}</td>
-                                <td className="px-3 py-2">
-                                  <Input type="number" min="0" step="0.01" placeholder="أدخل العدد"
-                                    value={jardCounts[r.product_id] ?? ''}
-                                    onChange={e => setJardCounts(prev => ({ ...prev, [r.product_id]: e.target.value }))}
-                                    className="w-28 text-sm" dir="ltr" />
-                                </td>
-                                <td className={cn('px-3 py-2 font-medium', diff === null ? '' : diff === 0 ? 'text-success' : diff > 0 ? 'text-success' : 'text-danger')}>
-                                  {diff !== null ? (diff >= 0 ? '+' : '') + formatNumber(diff) : '—'}
-                                </td>
-                                <td className="px-3 py-2 text-muted-foreground">
-                                  {diffPct !== null ? (diffPct >= 0 ? '+' : '') + diffPct.toFixed(1) + '%' : '—'}
-                                </td>
-                                <td className="px-3 py-2 text-xs">{status}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             )}
-            </>
+
+            {/* New جرد input */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm flex items-center justify-between">
+                <span>إدخال جرد جديد — {formatDate(jardDate)}</span>
+                <Button size="sm" onClick={handleSaveJardNew} disabled={isSaving}>
+                  {isSaving ? 'جاري الحفظ...' : 'حفظ الجرد'}
+                </Button>
+              </CardTitle></CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border bg-muted/50">
+                      {['الصنف','الفئة','الكمية الفعلية (كج)','م.و.م'].map(h => (
+                        <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {(products ?? []).map(p => {
+                        const existing = (jardExisting ?? []).find(j => j.product_id === p.id)
+                        if (existing) return null
+                        return (
+                          <tr key={p.id} className="border-b last:border-b-0 border-border/50">
+                            <td className="px-3 py-2 font-medium">{p.name_ar}</td>
+                            <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                            <td className="px-3 py-2">
+                              <Input type="number" min="0" step="0.01" placeholder="0"
+                                value={jardInputs[p.id] ?? ''}
+                                onChange={e => setJardInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                className="w-28 text-sm" dir="ltr" />
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">{formatNumber(latestCosts?.[p.id] ?? 0)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>
 
-      {/* ── Opening Balance Dialog ──────────────────────────────────────────── */}
-      <Dialog open={openingDialog} onOpenChange={setOpeningDialog}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader><DialogTitle>إدخال الرصيد الافتتاحي</DialogTitle></DialogHeader>
-          <div className="space-y-1"><Label>التاريخ</Label><Input type="date" value={openingDate} onChange={e => setOpeningDate(e.target.value)} className="w-44" dir="ltr" /></div>
-          <p className="text-xs text-muted-foreground">أدخل الكميات الموجودة في المخزن في هذا التاريخ</p>
-          <div className="max-h-[50vh] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-popover">
-                <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">الصنف</th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">الكمية (كج)</th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">التكلفة/كج</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products?.map(p => (
-                  <tr key={p.id} className="border-b border-border/50">
-                    <td className="px-3 py-2 font-medium">{p.name_ar}</td>
-                    <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0" value={openingBalances[p.id]?.qty ?? ''} onChange={e => setOpeningBalances(prev => ({ ...prev, [p.id]: { qty: e.target.value, cost: prev[p.id]?.cost ?? '' } }))} className="w-28 text-sm" dir="ltr" /></td>
-                    <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0" value={openingBalances[p.id]?.cost ?? ''} onChange={e => setOpeningBalances(prev => ({ ...prev, [p.id]: { qty: prev[p.id]?.qty ?? '', cost: e.target.value } }))} className="w-28 text-sm" dir="ltr" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Button onClick={handleSaveOpening} disabled={isSaving} className="w-full">{isSaving ? 'جاري الحفظ...' : `حفظ — ${formatDate(openingDate)}`}</Button>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

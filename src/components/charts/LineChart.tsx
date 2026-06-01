@@ -40,7 +40,8 @@ export function LineChart({ data, lines, xAxisKey, height = 300 }: LineChartProp
           width={70}
         />
         <Tooltip
-          formatter={(v: unknown, name: unknown) => [formatNumber(v as number), name]}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter={(v: any) => formatNumber(v as number)}
           contentStyle={TOOLTIP_STYLE}
           cursor={{ stroke: 'rgba(100,116,139,0.2)', strokeWidth: 1 }}
         />

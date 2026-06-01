@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { TrendingUp, TrendingDown, ShoppingCart, Trash2, DollarSign, Calendar } from 'lucide-react'
+import { TrendingUp, ShoppingCart, Trash2, DollarSign, Calendar, Percent, Package } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -188,17 +189,33 @@ export default function Dashboard() {
         </span>
       </div>
 
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { to: '/purchases', label: 'إدخال مشتريات', color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/20' },
+          { to: '/sales', label: 'إدخال مبيعات', color: 'bg-primary/10 text-primary border-primary/20 hover:bg-primary/20' },
+          { to: '/waste', label: 'تسجيل هدر', color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/20' },
+          { to: '/inventory', label: 'جرد المخزون', color: 'bg-muted/50 text-foreground border-border hover:bg-muted' },
+        ].map(a => (
+          <Link key={a.to} to={a.to} className={`flex items-center justify-center px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${a.color}`}>
+            {a.label}
+          </Link>
+        ))}
+      </div>
+
       {/* KPI Cards */}
       {isLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <KpiCard title="إجمالي المبيعات" value={totalSales} unit="ر.س" icon={TrendingUp} color="bg-primary" />
           <KpiCard title="إجمالي المشتريات" value={totalPurchases} unit="ر.س" icon={ShoppingCart} color="bg-blue-500" />
           <KpiCard title="صافي الربح" value={netProfit} unit="ر.س" icon={DollarSign} color={netProfit >= 0 ? 'bg-success' : 'bg-danger'} />
+          <KpiCard title="هامش الربح" value={totalSales > 0 ? (netProfit / totalSales) * 100 : 0} unit="%" icon={Percent} color={netProfit >= 0 ? 'bg-success' : 'bg-danger'} />
           <KpiCard title="نسبة الهدر" value={wastePercent} unit="%" icon={Trash2} color="bg-warning" />
+          <KpiCard title="أصناف منخفضة" value={lowStockItems.length} icon={Package} color={lowStockItems.length > 0 ? 'bg-danger' : 'bg-success'} />
         </div>
       )}
 

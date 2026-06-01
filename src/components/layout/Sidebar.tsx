@@ -40,9 +40,9 @@ export function Sidebar() {
     <aside className="w-64 min-h-screen bg-card border-l border-border flex flex-col">
       {/* Logo */}
       <div className="p-6 flex items-center gap-3 border-b border-border">
-        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden shrink-0 ${site.logo ? 'bg-transparent' : 'bg-primary'}`}>
           {site.logo
-            ? <img src={site.logo} alt="logo" className="w-full h-full object-contain" />
+            ? <img src={site.logo} alt="logo" className="w-full h-full object-cover rounded-lg" />
             : <Leaf className="w-5 h-5 text-primary-foreground" />
           }
         </div>

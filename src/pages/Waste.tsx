@@ -16,6 +16,7 @@ import { useAppStore } from '@/store/appStore'
 import { formatNumber, formatDate, todayISO, monthName } from '@/lib/utils'
 import type { WasteLog } from '@/types'
 import { exportToExcel } from '@/lib/excel'
+import { Combobox } from '@/components/ui/combobox'
 
 export default function Waste() {
   const { selectedMonth, selectedYear } = useAppStore()
@@ -120,12 +121,13 @@ export default function Waste() {
             </div>
             <div className="space-y-2">
               <Label>الصنف</Label>
-              <Select value={productId} onValueChange={v => setProductId(v ?? '')}>
-                <SelectTrigger><SelectValue placeholder="اختر" /></SelectTrigger>
-                <SelectContent>
-                  {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Combobox
+                options={(products ?? []).map(p => ({ value: p.id, label: p.name_ar, sub: p.category }))}
+                value={productId}
+                onValueChange={setProductId}
+                placeholder="اختر صنف"
+                searchPlaceholder="بحث عن صنف..."
+              />
             </div>
             <div className="space-y-2">
               <Label>الكمية (كج)</Label>

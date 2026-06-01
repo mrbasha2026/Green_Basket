@@ -40,6 +40,24 @@ export function useUpsertInventory() {
   })
 }
 
+export function useDeleteInventory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ product_id, date }: { product_id: string; date: string }) => {
+      if (USE_MOCK) return
+      const { error } = await supabase
+        .from('inventory_daily')
+        .delete()
+        .eq('product_id', product_id)
+        .eq('date', date)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+  })
+}
+
 // Earliest (opening) record per product — used as the base for computing running balance
 export function useEarliestInventory() {
   return useQuery<InventoryDaily[]>({

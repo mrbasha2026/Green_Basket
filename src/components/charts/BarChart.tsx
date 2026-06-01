@@ -73,7 +73,8 @@ export function BarChart({ data, bars, xAxisKey, height = 300, layout = 'horizon
           </>
         )}
         <Tooltip
-          formatter={(v: unknown, name: unknown) => [formatNumber(v as number), name]}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter={(v: any) => formatNumber(v as number)}
           contentStyle={TOOLTIP_STYLE}
           cursor={{ fill: 'rgba(100,116,139,0.06)' }}
         />

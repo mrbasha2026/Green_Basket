@@ -21,6 +21,7 @@ import type { Sale, SaleFormRow } from '@/types'
 import { cn } from '@/lib/utils'
 import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
 import { FileDown, Upload } from 'lucide-react'
+import { Combobox } from '@/components/ui/combobox'
 
 const emptyRow = (): SaleFormRow => ({
   product_id: '',
@@ -238,16 +239,14 @@ export default function Sales() {
                             return (
                               <tr key={i} className="border-b border-border/50">
                                 <td className="px-2 py-1.5">
-                                  <Select value={r.product_id} onValueChange={v => updateRow(i, 'product_id', v ?? '')}>
-                                    <SelectTrigger className="w-36 text-sm">
-                                      <SelectValue placeholder="اختر" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {products?.map(p => (
-                                        <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <Combobox
+                                    className="w-44"
+                                    options={(products ?? []).map(p => ({ value: p.id, label: p.name_ar, sub: p.category }))}
+                                    value={r.product_id}
+                                    onValueChange={v => updateRow(i, 'product_id', v)}
+                                    placeholder="اختر صنف"
+                                    searchPlaceholder="بحث عن صنف..."
+                                  />
                                 </td>
                                 <td className="px-2 py-1.5">
                                   <Input type="number" min="0" step="0.01" value={r.qty_kg || ''} onChange={e => updateRow(i, 'qty_kg', parseFloat(e.target.value) || 0)} className="w-20 text-sm" dir="ltr" />
@@ -277,7 +276,12 @@ export default function Sales() {
                       </table>
                     </div>
                     <div className="flex items-center justify-between">
-                      <Button variant="outline" size="sm" onClick={() => setRows(prev => [...prev, emptyRow()])}>+ إضافة صنف</Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setRows(prev => [...prev, emptyRow()])}>+ إضافة صنف</Button>
+                        <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
+                          <Upload className="w-4 h-4" /> استيراد من Excel
+                        </Button>
+                      </div>
                       {totalAmount > 0 && (
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-lg">
                           <span className="text-sm text-muted-foreground">الإجمالي:</span>
@@ -333,17 +337,7 @@ export default function Sales() {
       {/* History */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>سجل المبيعات</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1" onClick={handleDownloadSalesTemplate}>
-                <FileDown className="w-4 h-4" /> نموذج Excel
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
-                <Upload className="w-4 h-4" /> استيراد Excel
-              </Button>
-            </div>
-          </CardTitle>
+          <CardTitle className="text-base">سجل المبيعات</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Import dialog */}
