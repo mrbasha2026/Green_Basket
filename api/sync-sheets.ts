@@ -51,7 +51,7 @@ interface SyncCache {
 async function buildCache(): Promise<SyncCache> {
   const [aliasRes, productRes, sheetRes] = await Promise.all([
     supabaseAdmin.from('product_aliases').select('alias, product_id'),
-    supabaseAdmin.from('products').select('id, name_en').not('name_en', 'is', null),
+    supabaseAdmin.from('products').select('id, name_en, name_ar'),
     supabaseAdmin.from('customer_sheet_mapping').select('sheet_name, customer_id'),
   ])
 
@@ -62,6 +62,7 @@ async function buildCache(): Promise<SyncCache> {
   }
   for (const row of productRes.data ?? []) {
     if (row.name_en) aliasMap.set(row.name_en.toUpperCase().trim(), row.id)
+    if (row.name_ar) aliasMap.set(row.name_ar.trim(), row.id)
   }
 
   const sheetMap = new Map<string, string>()
@@ -107,19 +108,17 @@ async function importPurchases(
 ): Promise<number> {
   const rows = []
   for (const r of records) {
+    if (r.cartons <= 0) continue  // المشتريات فقط
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
     if (!productId) continue
-    const totalCost = r.cartons * r.price
-    const totalWeight = r.cartons * r.weight
-    const net = totalWeight - r.waste
     rows.push({
       product_id: productId,
       date: r.date.toISOString().split('T')[0],
       cartons_qty: r.cartons,
       price_per_carton: r.price,
       weight_per_carton: r.weight,
-      waste_kg: r.waste,
-      cost_per_kg: net > 0 ? totalCost / net : 0,
+      waste_kg: 0,
+      cost_per_kg: r.weight > 0 ? r.price / r.weight : 0,
       source: 'google_sheet',
     })
   }
@@ -131,14 +130,42 @@ async function importPurchases(
   return rows.length
 }
 
+async function importWaste(
+  records: PurchaseRecord[],
+  cache: SyncCache
+): Promise<number> {
+  const rows = []
+  for (const r of records) {
+    if (r.waste <= 0) continue  // الهدر فقط
+    const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
+    if (!productId) continue
+    rows.push({
+      product_id: productId,
+      date: r.date.toISOString().split('T')[0],
+      waste_kg: r.waste,
+      reason: null,
+      source: 'google_sheet',
+    })
+  }
+  if (rows.length > 0) {
+    await supabaseAdmin
+      .from('waste_log')
+      .upsert(rows, { onConflict: 'product_id,date,source', ignoreDuplicates: true })
+  }
+  return rows.length
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function syncSheets(spreadsheetId: string) {
-  // تحميل كل البيانات مرة واحدة بدلاً من query لكل سجل
   const [allSheets, cache] = await Promise.all([
     getSheets(spreadsheetId),
     buildCache(),
   ])
+
+  console.log(`\n[SYNC] ورقات موجودة (${allSheets.length}):`, allSheets.map(s => s.name))
+  console.log(`[SYNC] منتجات في الـ cache: ${cache.aliasMap.size}`)
+  console.log(`[SYNC] عملاء مربوطون: ${cache.sheetMap.size} →`, [...cache.sheetMap.keys()])
 
   let totalImported = 0
   let newCustomers = 0
@@ -150,15 +177,34 @@ export async function syncSheets(spreadsheetId: string) {
 
     if (SYSTEM_SHEETS.includes(name)) {
       if (name.includes('المشتريات')) {
+        console.log(`\n[SYNC] 📦 ورقة مشتريات: "${name}"`)
+        console.log(`[SYNC]   صف 0:`, sheet.data[0]?.slice(0, 10))
+        console.log(`[SYNC]   صف 1:`, sheet.data[1]?.slice(0, 10))
+        console.log(`[SYNC]   صف 2:`, sheet.data[2]?.slice(0, 10))
         const records = parsePurchasesSheet(sheet.data)
-        const count = await importPurchases(records, cache)
-        totalImported += count
+        console.log(`[SYNC]   سجلات parsed: ${records.length}`)
+        if (records.length > 0) console.log(`[SYNC]   عينة:`, records[0])
+        const notFound = records.filter(r => !cache.aliasMap.get(r.productName.toUpperCase().trim()))
+        if (notFound.length > 0) console.log(`[SYNC]   ⚠️ غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
+        const purchaseCount = await importPurchases(records, cache)
+        const wasteCount = await importWaste(records, cache)
+        console.log(`[SYNC]   ✅ مشتريات: ${purchaseCount} | هدر: ${wasteCount}`)
+        totalImported += purchaseCount
       }
     } else {
       const customerId = cache.sheetMap.get(name)
       if (customerId) {
+        console.log(`\n[SYNC] 🛒 ورقة عميل: "${name}"`)
+        console.log(`[SYNC]   صف 0:`, sheet.data[0]?.slice(0, 10))
+        console.log(`[SYNC]   صف 1:`, sheet.data[1]?.slice(0, 10))
+        console.log(`[SYNC]   صف 2:`, sheet.data[2]?.slice(0, 10))
         const records = parseCustomerSheet(sheet.data)
+        console.log(`[SYNC]   سجلات parsed: ${records.length}`)
+        if (records.length > 0) console.log(`[SYNC]   عينة:`, records[0])
+        const notFound = records.filter(r => !cache.aliasMap.get(r.productName.toUpperCase().trim()))
+        if (notFound.length > 0) console.log(`[SYNC]   ⚠️ غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
         const count = await importSales(records, customerId, cache)
+        console.log(`[SYNC]   ✅ مستوردة: ${count}`)
         totalImported += count
       } else {
         pendingCustomers.push(name)
@@ -167,7 +213,6 @@ export async function syncSheets(spreadsheetId: string) {
     }
   }
 
-  // إضافة العملاء الجدد لقائمة الانتظار (تجنب التكرار)
   if (pendingCustomers.length > 0) {
     const { data: existing } = await supabaseAdmin
       .from('sync_pending_review')
@@ -185,6 +230,7 @@ export async function syncSheets(spreadsheetId: string) {
     }
   }
 
+  console.log(`\n[SYNC] ✅ انتهت المزامنة — إجمالي مستورد: ${totalImported}`)
   return { imported: totalImported, newCustomers, newProducts: 0 }
 }
 

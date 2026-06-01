@@ -13,33 +13,59 @@ export const SYSTEM_SHEETS = [
   'Copy of new ',
 ]
 
+// يحوّل القيم العربية (٫ للعشري، ٬ أو , للآلاف) إلى أرقام صحيحة
+function parseNum(val: unknown): number {
+  if (val === null || val === undefined) return 0
+  const s = String(val)
+    .replace(/٬|،/g, '')    // فاصل الآلاف العربي
+    .replace(/,/g, '')       // فاصل الآلاف الإنجليزي
+    .replace(/٫/g, '.')     // الفاصل العشري العربي → إنجليزي
+    .replace(/[^\d.\-]/g, '') // أبقِ الأرقام والنقطة والناقص فقط
+  return parseFloat(s) || 0
+}
+
+// يحوّل تاريخ النص إلى Date بتوقيت UTC لتجنب فارق المنطقة الزمنية
+function parseDateStr(val: unknown): Date | null {
+  if (!val) return null
+  if (val instanceof Date) return val
+  const s = String(val).trim()
+
+  // تنسيق MM/DD/YYYY
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (mdy) return new Date(Date.UTC(+mdy[3], +mdy[1] - 1, +mdy[2]))
+
+  // تنسيق YYYY-MM-DD
+  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) return new Date(Date.UTC(+ymd[1], +ymd[2] - 1, +ymd[3]))
+
+  return null
+}
+
 export function parseCustomerSheet(rows: unknown[][]): SaleRecord[] {
-  const COLS_PER_DAY = 5
   const DATE_START_COL = 2
   const records: SaleRecord[] = []
 
   if (!rows || rows.length < 2) return records
 
+  // فحص كل الأعمدة بدلاً من القفز بخطوات ثابتة — يتعامل مع أعمدة إضافية
   const dates: { col: number; date: Date }[] = []
-  for (let col = DATE_START_COL; col < (rows[0] as unknown[]).length; col += COLS_PER_DAY) {
-    const val = rows[0][col]
-    if (val instanceof Date) {
-      dates.push({ col, date: val })
-    } else if (typeof val === 'string' && val.trim()) {
-      const d = new Date(val)
-      if (!isNaN(d.getTime())) dates.push({ col, date: d })
-    }
+  for (let col = DATE_START_COL; col < (rows[0] as unknown[]).length; col++) {
+    const d = parseDateStr(rows[0][col])
+    if (d) dates.push({ col, date: d })
   }
 
   for (let row = 2; row < rows.length; row++) {
     const productName = String(rows[row][0] ?? '').trim()
     if (!productName) continue
+    // تخطي صفوف الفواصل (تحتوي على تاريخ في العمود الأول)
+    if (/^\d{1,4}[\/-]\d{1,2}([\/-]\d{1,4})?$/.test(productName)) continue
 
     for (const { col, date } of dates) {
-      const qty = parseFloat(String(rows[row][col] ?? 0)) || 0
-      const buyPrice = parseFloat(String(rows[row][col + 1] ?? 0)) || 0
-      const sellPrice = parseFloat(String(rows[row][col + 3] ?? 0)) || 0
-      const total = parseFloat(String(rows[row][col + 4] ?? 0)) || 0
+      const qty       = parseNum(rows[row][col])
+      const buyPrice  = parseNum(rows[row][col + 1])
+      // col+2 = اجمالي الشراء (مُهمَل)
+      const sellPrice = parseNum(rows[row][col + 3])  // سعر البيع
+      const total     = parseNum(rows[row][col + 4])  // الإجمالي
 
       if (qty > 0) {
         records.push({ date, productName, qty, buyPrice, sellPrice, total })
@@ -51,34 +77,32 @@ export function parseCustomerSheet(rows: unknown[][]): SaleRecord[] {
 }
 
 export function parsePurchasesSheet(rows: unknown[][]): PurchaseRecord[] {
-  const COLS_PER_DAY = 7
   const DATE_START_COL = 1
   const records: PurchaseRecord[] = []
 
   if (!rows || rows.length < 2) return records
 
+  // فحص كل الأعمدة بدلاً من القفز بخطوات ثابتة
   const dates: { col: number; date: Date }[] = []
-  for (let col = DATE_START_COL; col < (rows[0] as unknown[]).length; col += COLS_PER_DAY) {
-    const val = rows[0][col]
-    if (val instanceof Date) {
-      dates.push({ col, date: val })
-    } else if (typeof val === 'string' && val.trim()) {
-      const d = new Date(val)
-      if (!isNaN(d.getTime())) dates.push({ col, date: d })
-    }
+  for (let col = DATE_START_COL; col < (rows[0] as unknown[]).length; col++) {
+    const d = parseDateStr(rows[0][col])
+    if (d) dates.push({ col, date: d })
   }
 
   for (let row = 2; row < rows.length; row++) {
     const productName = String(rows[row][0] ?? '').trim()
     if (!productName) continue
+    if (/^\d{1,4}[\/-]\d{1,2}([\/-]\d{1,4})?$/.test(productName)) continue
 
     for (const { col, date } of dates) {
-      const cartons = parseFloat(String(rows[row][col] ?? 0)) || 0
-      const price = parseFloat(String(rows[row][col + 1] ?? 0)) || 0
-      const weight = parseFloat(String(rows[row][col + 3] ?? 0)) || 0
-      const waste = parseFloat(String(rows[row][col + 6] ?? 0)) || 0
+      const cartons = parseNum(rows[row][col])
+      const price   = parseNum(rows[row][col + 1])
+      // col+2 = اجمالي السعر (مُهمَل)
+      const weight  = parseNum(rows[row][col + 3])  // الوزن
+      // col+4 = اجمالي الأوزان، col+5 = تكلفة الكيلو (مُهمَلان)
+      const waste   = parseNum(rows[row][col + 6])  // وزن التالف
 
-      if (cartons > 0) {
+      if (cartons > 0 || waste > 0) {
         records.push({ date, productName, cartons, price, weight, waste })
       }
     }
