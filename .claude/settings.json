@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if not *)",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-0g-9g-sheets.googleusercontent.com)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:5174/api/sync-sheets)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5174/api/sync-sheets)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -H \"Authorization: Bearer dummytoken\" http://localhost:5174/api/sync-sheets --max-time 60)",
+      "Bash(cat /tmp/vite-dev.log | tail -30)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -H \"Authorization: Bearer dummytoken\" http://localhost:5174/api/sync-sheets --max-time 180)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\HP\\GreenBasket System"
+    ]
+  }
+}
