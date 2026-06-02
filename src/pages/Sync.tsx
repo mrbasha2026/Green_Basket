@@ -7,10 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
-import { useSyncLogs, useSyncPendingReview, useTriggerSync, useApprovePendingReview, useRejectPendingReview } from '@/hooks/useSync'
+import { useSyncLogs, useSyncPendingReview, useTriggerSync, useDeleteSheetDataByMonth, useApprovePendingReview, useRejectPendingReview } from '@/hooks/useSync'
 import { formatDateTime } from '@/lib/utils'
 import type { SyncLog } from '@/types'
-import { RefreshCw, CheckCircle, XCircle, Clock, Settings2 } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2 } from 'lucide-react'
 import { monthName, todayISO } from '@/lib/utils'
 
 // ── Per-month spreadsheet config stored in localStorage ──────────────────────
@@ -34,8 +34,10 @@ export default function Sync() {
   const { data: logs, isLoading: logsLoading } = useSyncLogs()
   const { data: pending } = useSyncPendingReview()
   const { mutateAsync: triggerSync, isPending: syncing } = useTriggerSync()
+  const { mutateAsync: deleteSheetData, isPending: isDeleting } = useDeleteSheetDataByMonth()
   const { mutateAsync: approve } = useApprovePendingReview()
   const { mutateAsync: reject } = useRejectPendingReview()
+  const [forcingSyncKey, setForcingSyncKey] = useState<string|null>(null)
 
   // Per-month sheets config
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>({})
@@ -102,6 +104,23 @@ export default function Sync() {
     }
   }
 
+  async function handleForceSync(key: string) {
+    const sheetId = sheetsConfig[key]
+    if (!sheetId) { toast.error('أدخل Spreadsheet ID أولاً لهذا الشهر'); return }
+    setForcingSyncKey(key)
+    try {
+      toast.loading('جاري حذف البيانات القديمة...', { id: 'force-sync' })
+      await deleteSheetData(key)
+      toast.loading('جاري إعادة المزامنة...', { id: 'force-sync' })
+      const result = await triggerSync({ spreadsheetId: sheetId })
+      toast.success(`تمت المزامنة الكاملة — ${result.imported ?? 0} سجل`, { id: 'force-sync' })
+    } catch (err) {
+      toast.error(`فشلت المزامنة: ${(err as Error).message}`, { id: 'force-sync' })
+    } finally {
+      setForcingSyncKey(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Status card */}
@@ -144,11 +163,14 @@ export default function Sync() {
                 <tr className="bg-muted/50 border-b border-border">
                   <th className="px-3 py-2 text-right text-muted-foreground font-medium w-32">الشهر</th>
                   <th className="px-3 py-2 text-right text-muted-foreground font-medium">Spreadsheet ID</th>
-                  <th className="px-3 py-2 text-right text-muted-foreground font-medium w-24"></th>
+                  <th className="px-3 py-2 text-right text-muted-foreground font-medium w-48">الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
-                {monthList.map(({ key, year, month }) => (
+                {monthList.map(({ key, year, month }) => {
+                  const isForcing = forcingSyncKey === key
+                  const isBusy = syncing || isDeleting || isForcing
+                  return (
                   <tr key={key} className="border-b last:border-b-0 border-border/50">
                     <td className="px-3 py-2.5 font-medium whitespace-nowrap">
                       {monthName(month)} {year}
@@ -164,19 +186,32 @@ export default function Sync() {
                       />
                     </td>
                     <td className="px-3 py-1.5">
-                      <Button
-                        size="sm"
-                        variant={sheetsConfig[key] ? 'default' : 'outline'}
-                        disabled={syncing || !sheetsConfig[key]}
-                        onClick={() => handleSyncMonth(key)}
-                        className="gap-1.5 h-8 text-xs w-full"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                        مزامنة
-                      </Button>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant={sheetsConfig[key] ? 'default' : 'outline'}
+                          disabled={isBusy || !sheetsConfig[key]}
+                          onClick={() => handleSyncMonth(key)}
+                          className="gap-1.5 h-8 text-xs flex-1"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${syncing && !isForcing ? 'animate-spin' : ''}`} />
+                          مزامنة
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy || !sheetsConfig[key]}
+                          onClick={() => handleForceSync(key)}
+                          className="gap-1.5 h-8 text-xs text-warning border-warning/30 hover:bg-warning/10 flex-1"
+                          title="حذف البيانات القديمة من الـ Sheet وإعادة الاستيراد"
+                        >
+                          <Trash2 className={`w-3.5 h-3.5 ${isForcing ? 'animate-spin' : ''}`} />
+                          تحديث كامل
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,7 +20,7 @@ import { useAppStore } from '@/store/appStore'
 import { formatNumber, monthName } from '@/lib/utils'
 import type { CostAllocation } from '@/types'
 import { cn } from '@/lib/utils'
-import { Lock, Calculator, FileDown } from 'lucide-react'
+import { Lock, Calculator, FileDown, DollarSign, Layers, BarChart2, GitCompare } from 'lucide-react'
 
 // Month/Year selector component
 function PeriodSelector() {
@@ -489,58 +489,45 @@ function ComparisonTab() {
 }
 
 export default function CostAccounting() {
+  type CostSection = 'entry' | 'allocation' | 'pl' | 'comparison'
+  const [activeTab, setActiveTab] = useState<CostSection>('entry')
+
+  const sections: { id: CostSection; label: string; icon: React.ElementType; title: string; content: ReactNode }[] = [
+    { id: 'entry', label: 'إدخال التكاليف', icon: DollarSign, title: 'التكاليف غير المباشرة', content: <CostEntryTab /> },
+    { id: 'allocation', label: 'توزيع التكاليف', icon: Layers, title: 'توزيع التكاليف على الأصناف', content: <AllocationTab /> },
+    { id: 'pl', label: 'تقرير P&L', icon: BarChart2, title: 'قائمة الدخل الشهرية', content: <PLTab /> },
+    { id: 'comparison', label: 'مقارنة الأشهر', icon: GitCompare, title: 'مقارنة الأشهر', content: <ComparisonTab /> },
+  ]
+
+  const current = sections.find(s => s.id === activeTab)!
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">إدارة التكاليف غير المباشرة وتوزيعها على الأصناف</p>
-        <PeriodSelector />
+    <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '580px' }}>
+      {/* Sidebar */}
+      <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+        <div className="p-3 border-b border-border">
+          <PeriodSelector />
+        </div>
+        <div className="flex-1 p-2 space-y-0.5 mt-2">
+          <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">الأقسام</p>
+          {sections.map(s => (
+            <button key={s.id} onClick={() => setActiveTab(s.id)}
+              className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+                activeTab === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              <s.icon className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{s.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-auto">
+        <Card className="m-4 flex-1 border-0 shadow-none">
+          <CardHeader className="pb-2"><CardTitle className="text-base">{current.title}</CardTitle></CardHeader>
+          <CardContent>{current.content}</CardContent>
+        </Card>
       </div>
-
-      <Tabs defaultValue="entry">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="entry">إدخال التكاليف</TabsTrigger>
-          <TabsTrigger value="allocation">توزيع التكاليف</TabsTrigger>
-          <TabsTrigger value="pl">تقرير P&L</TabsTrigger>
-          <TabsTrigger value="comparison">مقارنة الأشهر</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="entry">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">التكاليف غير المباشرة</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CostEntryTab />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="allocation">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">توزيع التكاليف على الأصناف</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AllocationTab />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="pl">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">قائمة الدخل الشهرية</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PLTab />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="comparison">
-          <ComparisonTab />
-        </TabsContent>
-      </Tabs>
     </div>
   )
 }

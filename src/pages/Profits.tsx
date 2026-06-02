@@ -2,22 +2,21 @@ import { useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { BarChart } from '@/components/charts/BarChart'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWaste } from '@/hooks/useWaste'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { formatNumber, todayISO } from '@/lib/utils'
 import type { Sale } from '@/types'
 import { cn } from '@/lib/utils'
-import { FileDown } from 'lucide-react'
+import { FileDown, BarChart2, Table2, Sliders } from 'lucide-react'
 
 type CostMode = 'direct' | 'with_waste'
+type ProfitsSection = 'chart' | 'table'
 
 interface ProfitRow {
   product_id: string
@@ -40,6 +39,7 @@ export default function Profits() {
   const [fromDate, setFromDate] = useState(thirtyAgo.toISOString().split('T')[0])
   const [toDate, setToDate] = useState(today)
   const [costMode, setCostMode] = useState<CostMode>('direct')
+  const [activeSection, setActiveSection] = useState<ProfitsSection>('chart')
 
   const { data: sales, isLoading } = useSalesByRange(fromDate, toDate)
   const { data: allWaste } = useWaste()
@@ -161,7 +161,7 @@ export default function Profits() {
       const canvas = await html2canvas(el, {
         scale: 2,
         backgroundColor: '#ffffff',
-        useCORS: true,
+        logging: false,
       })
       const imgData = canvas.toDataURL('image/png')
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
@@ -192,12 +192,17 @@ export default function Profits() {
     }
   }
 
+  const sections: { id: ProfitsSection; label: string; icon: React.ElementType }[] = [
+    { id: 'chart', label: 'هامش الربح (رسم بياني)', icon: BarChart2 },
+    { id: 'table', label: 'تفاصيل الأرباح', icon: Table2 },
+  ]
+
   return (
-    <div className="space-y-6">
-      {/* hidden capture target for PDF — width matched to A4 landscape usable area */}
+    <div className="space-y-4">
+      {/* hidden capture target for PDF */}
       <div id="profits-report-content" style={{
-        position: 'fixed', top: '-9999px', left: '-9999px',
-        width: '1060px', backgroundColor: '#fff', padding: '20px',
+        position: 'absolute', top: '0', left: '-9999px',
+        width: '1060px', backgroundColor: '#fff', color: '#111827', padding: '20px',
         fontFamily: 'Tahoma, Arial, sans-serif', direction: 'rtl', fontSize: '11px',
       }}>
         <div style={{ background: '#16a34a', color: '#fff', borderRadius: '6px', padding: '10px 14px', marginBottom: '10px' }}>
@@ -208,15 +213,9 @@ export default function Profits() {
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10.5px', tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '20%' }} />{/* الصنف */}
-            <col style={{ width: '9%' }} />{/* م.و.م */}
-            <col style={{ width: '9%' }} />{/* سعر البيع */}
-            <col style={{ width: '9%' }} />{/* هامش/كج */}
-            <col style={{ width: '8%' }} />{/* هامش% */}
-            <col style={{ width: '11%' }} />{/* الكمية */}
-            <col style={{ width: '12%' }} />{/* الإيراد */}
-            <col style={{ width: '11%' }} />{/* التكلفة */}
-            <col style={{ width: '11%' }} />{/* الربح */}
+            <col style={{ width: '20%' }} /><col style={{ width: '9%' }} /><col style={{ width: '9%' }} />
+            <col style={{ width: '9%' }} /><col style={{ width: '8%' }} /><col style={{ width: '11%' }} />
+            <col style={{ width: '12%' }} /><col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
           </colgroup>
           <thead>
             <tr style={{ background: '#f1f5f9' }}>
@@ -228,126 +227,112 @@ export default function Profits() {
           <tbody>
             {profitRows.map((r, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.avgWAC)}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.avgSellPrice)}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left', color: r.marginPerKg >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(r.marginPerKg)}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left', color: r.marginPct >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{r.marginPct.toFixed(1)}%</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.qtyKg)}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.totalRevenue)}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.totalCost)}</td>
-                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left', color: r.totalProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{formatNumber(r.totalProfit)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', fontWeight: '600' }}>{r.name}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.avgWAC)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.avgSellPrice)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', color: r.marginPerKg >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(r.marginPerKg)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', color: r.marginPct >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{r.marginPct.toFixed(1)}%</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.qtyKg)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.totalRevenue)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.totalCost)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', color: r.totalProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{formatNumber(r.totalProfit)}</td>
               </tr>
             ))}
-            <tr style={{ background: '#f1f5f9', fontWeight: 'bold', borderTop: '2px solid #e2e8f0' }}>
-              <td style={{ padding: '7px 8px' }}>الإجمالي</td>
-              <td colSpan={4} style={{ padding: '7px 8px' }}></td>
-              <td style={{ padding: '7px 8px', textAlign: 'left' }}>{formatNumber(profitRows.reduce((s,r)=>s+r.qtyKg,0))}</td>
-              <td style={{ padding: '7px 8px', textAlign: 'left' }}>{formatNumber(totalRevenue)}</td>
-              <td style={{ padding: '7px 8px', textAlign: 'left' }}>{formatNumber(totalCost)}</td>
-              <td style={{ padding: '7px 8px', textAlign: 'left', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(totalProfit)}</td>
-            </tr>
           </tbody>
         </table>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-5">
-          <div className="flex items-end gap-4 flex-wrap">
-            <div className="space-y-1">
-              <Label>من</Label>
-              <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="w-40" dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <Label>إلى</Label>
-              <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="w-40" dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <Label>تكاليف المصروفات</Label>
-              <Select value={costMode} onValueChange={v => setCostMode(v as CostMode)}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="direct">ربح مباشر فقط</SelectItem>
-                  <SelectItem value="with_waste">مع تكلفة الهدر</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button variant="outline" size="sm" onClick={handleExportPDF} className="gap-2 mb-0.5">
-              <FileDown className="w-4 h-4" /> تصدير PDF
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Summaries */}
+      {/* Stat summary row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground">إجمالي الإيرادات</p>
-            <p className="text-2xl font-bold text-foreground">{formatNumber(totalRevenue)} <span className="text-sm font-normal text-muted-foreground">ر.س</span></p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground">تكلفة البضاعة</p>
-            <p className="text-2xl font-bold text-foreground">{formatNumber(totalCost)} <span className="text-sm font-normal text-muted-foreground">ر.س</span></p>
-          </CardContent>
-        </Card>
-        {costMode === 'with_waste' && (
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-sm text-muted-foreground">تكلفة الهدر</p>
-              <p className="text-2xl font-bold text-warning">{formatNumber(totalWasteCost)} <span className="text-sm font-normal text-muted-foreground">ر.س</span></p>
-            </CardContent>
-          </Card>
-        )}
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground">إجمالي الربح</p>
-            <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
-              {formatNumber(totalProfit)} <span className="text-sm font-normal text-muted-foreground">ر.س</span>
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : '0'}% هامش
-            </p>
-          </CardContent>
-        </Card>
+        {[
+          { label: 'إجمالي الإيرادات', value: formatNumber(totalRevenue), cls: 'text-foreground' },
+          { label: 'تكلفة البضاعة', value: formatNumber(totalCost), cls: 'text-foreground' },
+          ...(costMode === 'with_waste' ? [{ label: 'تكلفة الهدر', value: formatNumber(totalWasteCost), cls: 'text-warning' }] : []),
+          { label: 'إجمالي الربح', value: `${formatNumber(totalProfit)} (${totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : '0'}%)`, cls: totalProfit >= 0 ? 'text-success' : 'text-danger' },
+        ].map(({ label, value, cls }) => (
+          <Card key={label}><CardContent className="pt-5">
+            <p className="text-xs text-muted-foreground mb-1">{label}</p>
+            <p className={`text-xl font-bold ${cls}`}>{value} <span className="text-xs font-normal text-muted-foreground">ر.س</span></p>
+          </CardContent></Card>
+        ))}
       </div>
 
-      {/* Bar chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">هامش الربح% لكل صنف</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? <Skeleton className="h-64" /> : (
-            <BarChart
-              data={barData}
-              xAxisKey="name"
-              bars={[{ dataKey: 'هامش%', name: 'هامش الربح%', color: '#16a34a' }]}
-              layout="vertical"
-              height={Math.max(280, barData.length * 30)}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {/* Sidebar + content */}
+      <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '560px' }}>
+        {/* Sidebar */}
+        <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+          {/* Filters */}
+          <div className="p-3 border-b border-border space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">فلتر التواريخ</p>
+            <QuickDateFilter from={fromDate} to={toDate} onFromChange={setFromDate} onToChange={setToDate} className="flex-col items-stretch gap-1.5" />
+          </div>
 
-      {/* Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">تفاصيل الأرباح المباشرة</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
-          ) : (
-            <DataTable data={profitRows} columns={columns} searchPlaceholder="بحث عن صنف..." />
+          {/* Cost mode */}
+          <div className="p-3 border-b border-border space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wide flex items-center gap-1.5"><Sliders className="w-3.5 h-3.5"/>وضع التكلفة</p>
+            {(['direct','with_waste'] as const).map(m => (
+              <button key={m} onClick={() => setCostMode(m)}
+                className={cn('w-full text-right px-3 py-2 rounded-lg text-xs font-medium transition-colors border',
+                  costMode === m ? 'bg-primary text-primary-foreground border-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted')}>
+                {m === 'direct' ? 'ربح مباشر فقط' : 'مع تكلفة الهدر'}
+              </button>
+            ))}
+          </div>
+
+          {/* Export */}
+          <div className="p-3 border-b border-border">
+            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={handleExportPDF}>
+              <FileDown className="w-3.5 h-3.5"/>تصدير PDF
+            </Button>
+          </div>
+
+          {/* Sections */}
+          <div className="flex-1 p-2 space-y-0.5">
+            <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">العروض</p>
+            {sections.map(s => (
+              <button key={s.id} onClick={() => setActiveSection(s.id)}
+                className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+                  activeSection === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                <s.icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1">{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        {/* Main content */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-auto p-5 space-y-5">
+          {activeSection === 'chart' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">هامش الربح% لكل صنف</CardTitle></CardHeader>
+              <CardContent>
+                {isLoading ? <Skeleton className="h-64" /> : (
+                  <BarChart
+                    data={barData}
+                    xAxisKey="name"
+                    bars={[{ dataKey: 'هامش%', name: 'هامش الربح%', color: '#16a34a' }]}
+                    layout="vertical"
+                    height={Math.max(280, barData.length * 30)}
+                  />
+                )}
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
+
+          {activeSection === 'table' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">تفاصيل الأرباح</CardTitle></CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+                ) : (
+                  <DataTable data={profitRows} columns={columns} searchPlaceholder="بحث عن صنف..." />
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

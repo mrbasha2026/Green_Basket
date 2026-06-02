@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, TrendingUp, Package, BarChart3,
-  Calculator, Users, Trash2, RefreshCw, FileText, Settings, Leaf,
+  Calculator, Trash2, RefreshCw, FileText, Settings, Leaf, LineChart,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -22,12 +22,12 @@ function useSiteSettings() {
 
 const navItems = [
   { to: '/', label: 'لوحة التحكم', icon: LayoutDashboard, end: true },
+  { to: '/analytics', label: 'الإحصائيات', icon: LineChart },
   { to: '/purchases', label: 'المشتريات', icon: ShoppingCart },
   { to: '/sales', label: 'المبيعات', icon: TrendingUp },
   { to: '/inventory', label: 'المخزون', icon: Package },
   { to: '/profits', label: 'تحليل الأرباح', icon: BarChart3 },
   { to: '/cost-accounting', label: 'محاسبة التكاليف', icon: Calculator },
-  { to: '/customers', label: 'العملاء', icon: Users },
   { to: '/waste', label: 'الهدر', icon: Trash2 },
   { to: '/sync', label: 'المزامنة', icon: RefreshCw },
   { to: '/reports', label: 'التقارير', icon: FileText },

@@ -55,7 +55,7 @@ export function Combobox({
         bottom: r.bottom, left: r.left, width: r.width,
         openAbove: spaceBelow < 280 && r.top > 200,
       })
-      setTimeout(() => inputRef.current?.focus(), 30)
+      setTimeout(() => inputRef.current?.focus(), 50)
     } else {
       setRect(null)
       setSearch("")
@@ -83,6 +83,7 @@ export function Combobox({
 
       {open && (
         <div
+          onMouseDown={e => e.stopPropagation()}
           className="z-[9999] rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
           style={rect ? (rect.openAbove ? {
             position: 'fixed',
@@ -104,7 +105,9 @@ export function Combobox({
               ref={inputRef}
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onMouseDown={e => e.stopPropagation()}
               placeholder={searchPlaceholder}
+              autoComplete="off"
               className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground text-right"
               dir="rtl"
             />

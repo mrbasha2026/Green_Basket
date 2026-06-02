@@ -33,6 +33,17 @@ export interface CustomerSheetMapping {
   created_at: string
 }
 
+export interface Supplier {
+  id: string
+  name_ar: string
+  phone: string | null
+  city: string | null
+  notes: string | null
+  is_active: boolean
+  is_default: boolean
+  created_at: string
+}
+
 export interface Purchase {
   id: string
   product_id: string
@@ -46,8 +57,13 @@ export interface Purchase {
   cost_per_kg: number
   source: 'web' | 'google_sheet'
   notes: string | null
+  supplier_id: string | null
+  invoice_number: string | null
+  supplier_ref: string | null
+  transaction_type: 'شراء' | 'مرتجع_مشتريات' | null
   created_at: string
   product?: Product
+  supplier?: Supplier
 }
 
 export interface Sale {
@@ -61,6 +77,8 @@ export interface Sale {
   total_purchase: number
   total_amount: number
   source: 'web' | 'google_sheet'
+  invoice_number: string | null
+  transaction_type: 'بيع' | 'مرتجع_مبيعات' | null
   created_at: string
   product?: Product
   customer?: Customer

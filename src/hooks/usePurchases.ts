@@ -13,7 +13,7 @@ export function usePurchases(date?: string) {
       if (USE_MOCK) return date ? mockPurchases.filter(p => p.date === date) : mockPurchases
       const q = supabase
         .from('purchases')
-        .select('*, product:products(*)')
+        .select('*, product:products(*), supplier:suppliers(*)')
         .order('date', { ascending: false })
       if (date) q.eq('date', date)
       const { data, error } = await q
@@ -30,7 +30,7 @@ export function usePurchasesByRange(from: string, to: string) {
       if (USE_MOCK) return mockPurchases
       const { data, error } = await supabase
         .from('purchases')
-        .select('*, product:products(*)')
+        .select('*, product:products(*), supplier:suppliers(*)')
         .gte('date', from)
         .lte('date', to)
         .order('date', { ascending: false })
@@ -46,15 +46,10 @@ export function useLatestPurchaseCosts(upToDate?: string) {
     queryFn: async () => {
       if (USE_MOCK) {
         const costs: Record<string, number> = {}
-        mockPurchases.forEach(p => {
-          if (!costs[p.product_id]) costs[p.product_id] = p.cost_per_kg
-        })
+        mockPurchases.forEach(p => { if (!costs[p.product_id]) costs[p.product_id] = p.cost_per_kg })
         return costs
       }
-      const q = supabase
-        .from('purchases')
-        .select('product_id, cost_per_kg, date')
-        .order('date', { ascending: false })
+      const q = supabase.from('purchases').select('product_id, cost_per_kg, date').order('date', { ascending: false })
       if (upToDate) q.lte('date', upToDate)
       const { data, error } = await q
       if (error) throw error
@@ -82,23 +77,31 @@ export function useDeletePurchase() {
   })
 }
 
+export function useDeletePurchasesByInvoice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (invoiceNumber: string) => {
+      if (USE_MOCK) return
+      const { error } = await supabase.from('purchases').delete().eq('invoice_number', invoiceNumber)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['purchases'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+  })
+}
+
 export function useUpsertPurchases() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (rows: Omit<Purchase, 'id' | 'total_cost' | 'total_weight' | 'created_at' | 'product'>[]) => {
+    mutationFn: async (rows: Omit<Purchase, 'id' | 'total_cost' | 'total_weight' | 'created_at' | 'product' | 'supplier'>[]) => {
       if (USE_MOCK) return rows
       const enriched = rows.map(r => ({
         ...r,
-        cost_per_kg: calcCostPerKg(
-          r.cartons_qty * r.price_per_carton,
-          r.cartons_qty * r.weight_per_carton,
-          r.waste_kg
-        ),
+        cost_per_kg: calcCostPerKg(r.cartons_qty * r.price_per_carton, r.cartons_qty * r.weight_per_carton, r.waste_kg),
       }))
-      const { data, error } = await supabase
-        .from('purchases')
-        .upsert(enriched)
-        .select()
+      const { data, error } = await supabase.from('purchases').insert(enriched).select()
       if (error) throw error
       return data
     },
@@ -107,4 +110,31 @@ export function useUpsertPurchases() {
       qc.invalidateQueries({ queryKey: ['inventory'] })
     },
   })
+}
+
+// ── Invoice number helpers ─────────────────────────────────────────────────────
+
+export async function nextPurchaseInvoiceNumber(prefix: string = 'PIM'): Promise<string> {
+  const { data } = await supabase
+    .from('purchases')
+    .select('invoice_number')
+    .not('invoice_number', 'is', null)
+    .like('invoice_number', `${prefix}-%`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+  const last = data?.[0]?.invoice_number ?? `${prefix}-00000`
+  const num = parseInt(last.replace(`${prefix}-`, '')) + 1
+  return `${prefix}-${String(num).padStart(5, '0')}`
+}
+
+// Returns existing invoice number for the date OR generates a new one
+export async function getOrCreateDailyPurchaseInvoice(date: string, prefix: string): Promise<string> {
+  const { data } = await supabase
+    .from('purchases')
+    .select('invoice_number')
+    .like('invoice_number', `${prefix}-%`)
+    .eq('date', date)
+    .limit(1)
+  if (data?.[0]?.invoice_number) return data[0].invoice_number
+  return nextPurchaseInvoiceNumber(prefix)
 }

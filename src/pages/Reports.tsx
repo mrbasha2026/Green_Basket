@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FileDown, Search } from 'lucide-react'
+import { FileDown, Search, Package, Users, Target, TrendingUp } from 'lucide-react'
 import { useCostAllocation } from '@/hooks/useCostAllocation'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
@@ -281,17 +281,30 @@ export default function Reports() {
             </div>
           )}
 
-          {/* ── Report Tabs ───────────────────────────────────────────────── */}
-          <Tabs defaultValue="products">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="products">ربحية الأصناف</TabsTrigger>
-              <TabsTrigger value="customers">ربحية العملاء</TabsTrigger>
-              <TabsTrigger value="breakeven">نقطة التعادل</TabsTrigger>
-              <TabsTrigger value="cm">هامش المساهمة%</TabsTrigger>
-            </TabsList>
-
-            {/* ── Tab 1: Product Profitability ───────────────────────────── */}
-            <TabsContent value="products">
+          {/* ── Report Sections ───────────────────────────────────────────── */}
+          {(() => {
+            type ReportSection = 'products' | 'customers' | 'breakeven' | 'cm'
+            const [activeRep, setActiveRep] = useState<ReportSection>('products')
+            const repSections: { id: ReportSection; label: string; icon: React.ElementType }[] = [
+              { id: 'products', label: 'ربحية الأصناف', icon: Package },
+              { id: 'customers', label: 'ربحية العملاء', icon: Users },
+              { id: 'breakeven', label: 'نقطة التعادل', icon: Target },
+              { id: 'cm', label: 'هامش المساهمة%', icon: TrendingUp },
+            ]
+            return (
+            <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '480px' }}>
+              <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col p-2 space-y-0.5">
+                <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">نوع التقرير</p>
+                {repSections.map(s => (
+                  <button key={s.id} onClick={() => setActiveRep(s.id)}
+                    className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+                      activeRep === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                    <s.icon className="w-4 h-4 shrink-0" /><span className="flex-1">{s.label}</span>
+                  </button>
+                ))}
+              </nav>
+              <div className="flex-1 min-w-0 overflow-auto p-4 space-y-4">
+            {activeRep === 'products' && <>
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
@@ -346,10 +359,8 @@ export default function Reports() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            {/* ── Tab 2: Customer Profitability ──────────────────────────── */}
-            <TabsContent value="customers">
+            </>}
+            {activeRep === 'customers' && <>
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
@@ -394,10 +405,8 @@ export default function Reports() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            {/* ── Tab 3: Break-even ─────────────────────────────────────── */}
-            <TabsContent value="breakeven">
+            </>}
+            {activeRep === 'breakeven' && <>
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
@@ -453,10 +462,8 @@ export default function Reports() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            {/* ── Tab 4: CM ─────────────────────────────────────────────── */}
-            <TabsContent value="cm">
+            </>}
+            {activeRep === 'cm' && <>
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
@@ -509,8 +516,11 @@ export default function Reports() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-          </Tabs>
+            </>}
+              </div>
+            </div>
+            )
+          })()}
         </>
       )}
     </div>

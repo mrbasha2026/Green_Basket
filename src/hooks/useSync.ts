@@ -105,6 +105,32 @@ export function useRejectPendingReview() {
   })
 }
 
+export function useDeleteSheetDataByMonth() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (monthKey: string) => {
+      // monthKey format: "YYYY-MM"
+      const from = `${monthKey}-01`
+      const d = new Date(monthKey + '-01T12:00:00')
+      d.setMonth(d.getMonth() + 1)
+      d.setDate(0)
+      const to = d.toISOString().split('T')[0]
+
+      const [{ error: e1 }, { error: e2 }] = await Promise.all([
+        supabase.from('sales').delete().eq('source', 'google_sheet').gte('date', from).lte('date', to),
+        supabase.from('purchases').delete().eq('source', 'google_sheet').gte('date', from).lte('date', to),
+      ])
+      if (e1) throw e1
+      if (e2) throw e2
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales'] })
+      qc.invalidateQueries({ queryKey: ['purchases'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+  })
+}
+
 export function useTriggerSync() {
   const qc = useQueryClient()
   return useMutation({

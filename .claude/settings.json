@@ -9,7 +9,11 @@
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -H \"Authorization: Bearer dummytoken\" http://localhost:5174/api/sync-sheets --max-time 60)",
       "Bash(cat /tmp/vite-dev.log | tail -30)",
       "Read(//tmp/**)",
-      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -H \"Authorization: Bearer dummytoken\" http://localhost:5174/api/sync-sheets --max-time 180)"
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -H \"Authorization: Bearer dummytoken\" http://localhost:5174/api/sync-sheets --max-time 180)",
+      "Bash(not exist *)",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\HP\\\\GreenBasket System\\\\src\\\\components\\\\customers\")",
+      "Bash(Out-Null)",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\HP\\\\GreenBasket System\\\\src\\\\components\\\\suppliers\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\HP\\GreenBasket System"

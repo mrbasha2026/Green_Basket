@@ -5,10 +5,10 @@ import { cn } from '@/lib/utils'
 import { todayISO } from '@/lib/utils'
 
 interface QuickDateFilterProps {
-  dateFrom: string
-  dateTo: string
-  onDateFromChange: (v: string) => void
-  onDateToChange: (v: string) => void
+  from: string
+  to: string
+  onFromChange: (v: string) => void
+  onToChange: (v: string) => void
   className?: string
 }
 
@@ -38,21 +38,21 @@ const PRESETS = [
   { label: 'الشهر الماضي', action: getLastMonthRange },
 ]
 
-export function QuickDateFilter({ dateFrom, dateTo, onDateFromChange, onDateToChange, className }: QuickDateFilterProps) {
+export function QuickDateFilter({ from, to, onFromChange, onToChange, className }: QuickDateFilterProps) {
   const today = todayISO()
-  const isPreset = (from: string, to: string) => dateFrom === from && dateTo === to
+  const isPreset = (f: string, t: string) => from === f && to === t
 
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {PRESETS.map(p => {
-        const [from, to] = p.action()
+        const [pFrom, pTo] = p.action()
         return (
           <Button
             key={p.label}
             size="sm"
-            variant={isPreset(from, to) ? 'default' : 'outline'}
+            variant={isPreset(pFrom, pTo) ? 'default' : 'outline'}
             className="h-8 text-xs"
-            onClick={() => { onDateFromChange(from); onDateToChange(to) }}
+            onClick={() => { onFromChange(pFrom); onToChange(pTo) }}
           >
             {p.label}
           </Button>
@@ -60,11 +60,11 @@ export function QuickDateFilter({ dateFrom, dateTo, onDateFromChange, onDateToCh
       })}
       <div className="flex items-center gap-1">
         <Label className="text-xs shrink-0 text-muted-foreground">من</Label>
-        <Input type="date" value={dateFrom} onChange={e => onDateFromChange(e.target.value)} max={today} className="text-xs h-8 w-36" dir="ltr" />
+        <Input type="date" value={from} onChange={e => onFromChange(e.target.value)} max={today} className="text-xs h-8 w-36" dir="ltr" />
       </div>
       <div className="flex items-center gap-1">
         <Label className="text-xs shrink-0 text-muted-foreground">إلى</Label>
-        <Input type="date" value={dateTo} onChange={e => onDateToChange(e.target.value)} max={today} className="text-xs h-8 w-36" dir="ltr" />
+        <Input type="date" value={to} onChange={e => onToChange(e.target.value)} max={today} className="text-xs h-8 w-36" dir="ltr" />
       </div>
     </div>
   )

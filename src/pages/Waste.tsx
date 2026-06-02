@@ -15,8 +15,10 @@ import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useAppStore } from '@/store/appStore'
 import { formatNumber, formatDate, todayISO, monthName } from '@/lib/utils'
 import type { WasteLog } from '@/types'
+import { cn } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import { Combobox } from '@/components/ui/combobox'
+import { BarChart2, List, PieChart as PieChartIcon, Plus } from 'lucide-react'
 
 export default function Waste() {
   const { selectedMonth, selectedYear } = useAppStore()
@@ -106,174 +108,150 @@ export default function Waste() {
     { accessorKey: 'source', header: 'المصدر', cell: ({ getValue }) => getValue() === 'web' ? 'يدوي' : 'Sheets' },
   ], [latestCosts])
 
-  return (
-    <div className="space-y-6">
-      {/* Entry form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>تسجيل هدر يومي</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="space-y-2">
-              <Label>التاريخ</Label>
-              <Input type="date" value={date} onChange={e => setDate(e.target.value)} dir="ltr" />
-            </div>
-            <div className="space-y-2">
-              <Label>الصنف</Label>
-              <Combobox
-                options={(products ?? []).map(p => ({ value: p.id, label: p.name_ar, sub: p.category }))}
-                value={productId}
-                onValueChange={setProductId}
-                placeholder="اختر صنف"
-                searchPlaceholder="بحث عن صنف..."
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>الكمية (كج)</Label>
-              <Input type="number" min="0" step="0.01" value={wasteKg} onChange={e => setWasteKg(e.target.value)} dir="ltr" placeholder="0" />
-            </div>
-            <div className="space-y-2">
-              <Label>التكلفة المقدرة</Label>
-              <div className="h-9 flex items-center px-3 rounded-lg bg-muted/50 border border-border text-sm">
-                {formWAC > 0 && wasteKg
-                  ? <span className="text-danger font-medium">{formatNumber(parseFloat(wasteKg || '0') * formWAC)} ر.س</span>
-                  : <span className="text-muted-foreground">—</span>
-                }
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>السبب (اختياري)</Label>
-              <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="تلف طبيعي..." />
-            </div>
-            <div className="col-span-full">
-              <Button type="submit" disabled={isPending}>{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+  type WasteSection = 'summary' | 'charts' | 'log'
+  const [activeSection, setActiveSection] = useState<WasteSection>('summary')
 
-      {/* Monthly summary + charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">ملخص الهدر — {monthName(selectedMonth)} {selectedYear}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-48" /> : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="px-3 py-2 text-right text-muted-foreground">الصنف</th>
-                      <th className="px-3 py-2 text-right text-muted-foreground">هدر (كج)</th>
-                      <th className="px-3 py-2 text-right text-muted-foreground">التكلفة (ر.س)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlySummary.map((r, i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="px-3 py-2">{r.name}</td>
-                        <td className="px-3 py-2 text-warning">{formatNumber(r.waste_kg)}</td>
-                        <td className="px-3 py-2 text-danger">
-                          {r.cost > 0 ? formatNumber(r.cost) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                    {monthlySummary.length === 0 && (
-                      <tr><td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">لا توجد بيانات</td></tr>
-                    )}
-                    {monthlySummary.length > 0 && (
-                      <tr className="bg-muted/30 font-medium">
-                        <td className="px-3 py-2">الإجمالي</td>
-                        <td className="px-3 py-2 text-warning">{formatNumber(monthlySummary.reduce((s, r) => s + r.waste_kg, 0))}</td>
-                        <td className="px-3 py-2 text-danger">{formatNumber(monthlySummary.reduce((s, r) => s + r.cost, 0))}</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+  const totalWasteKg = monthlySummary.reduce((s, r) => s + r.waste_kg, 0)
+  const totalWasteCost = monthlySummary.reduce((s, r) => s + r.cost, 0)
+
+  const sections = [
+    { id: 'summary' as WasteSection, label: 'ملخص الهدر', icon: BarChart2 },
+    { id: 'charts' as WasteSection, label: 'المخططات', icon: PieChartIcon },
+    { id: 'log' as WasteSection, label: 'سجل الهدر', icon: List, badge: filteredWaste.length },
+  ]
+
+  return (
+    <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '580px' }}>
+      {/* Sidebar */}
+      <div className="w-64 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+        {/* Form */}
+        <div className="p-3 border-b border-border">
+          <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide flex items-center gap-1.5"><Plus className="w-3 h-3"/>تسجيل هدر جديد</p>
+          <form onSubmit={handleSubmit} className="space-y-2.5 mt-2">
+            <div className="space-y-1"><Label className="text-xs">التاريخ</Label>
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} dir="ltr" className="h-8 text-xs" /></div>
+            <div className="space-y-1"><Label className="text-xs">الصنف</Label>
+              <Combobox options={(products ?? []).map(p => ({ value: p.id, label: p.name_ar, sub: p.category }))} value={productId} onValueChange={setProductId} placeholder="اختر صنف" /></div>
+            <div className="space-y-1"><Label className="text-xs">الكمية (كج)</Label>
+              <Input type="number" min="0" step="0.01" value={wasteKg} onChange={e => setWasteKg(e.target.value)} dir="ltr" placeholder="0" className="h-8 text-xs" /></div>
+            {formWAC > 0 && wasteKg && (
+              <div className="text-xs text-center py-1.5 bg-danger/10 text-danger rounded-lg font-medium">
+                التكلفة: {formatNumber(parseFloat(wasteKg || '0') * formWAC)} ر.س
               </div>
             )}
-          </CardContent>
-        </Card>
+            <div className="space-y-1"><Label className="text-xs">السبب (اختياري)</Label>
+              <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="تلف طبيعي..." className="h-8 text-xs" /></div>
+            <Button type="submit" size="sm" disabled={isPending} className="w-full gap-1.5">
+              <Plus className="w-3.5 h-3.5"/>{isPending ? 'جاري الحفظ...' : 'حفظ'}
+            </Button>
+          </form>
+        </div>
 
-        {/* Charts stacked vertically */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">حسب الكمية (كج)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {pieDataQty.length > 0 ? <PieChart data={pieDataQty} /> : (
-                <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>
-              )}
-            </CardContent>
-          </Card>
+        {/* Month selector */}
+        <div className="p-3 border-b border-border space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wide">الفترة</p>
+          <div className="flex gap-1.5">
+            <Select value={String(selectedMonth)} onValueChange={v => v && useAppStore.getState().setMonth(parseInt(v))}>
+              <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
+              <SelectContent>{Array.from({length:12},(_,i)=>i+1).map(m=><SelectItem key={m} value={String(m)}>{monthName(m).substring(0,3)}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={String(selectedYear)} onValueChange={v => v && useAppStore.getState().setYear(parseInt(v))}>
+              <SelectTrigger className="h-8 text-xs w-20"><SelectValue /></SelectTrigger>
+              <SelectContent>{[new Date().getFullYear()-1,new Date().getFullYear()].map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">حسب التكلفة (ر.س)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {pieDataCost.length > 0 ? <PieChart data={pieDataCost} /> : (
-                <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات للتكلفة</p>
-              )}
-            </CardContent>
-          </Card>
+        {/* Stats */}
+        {totalWasteKg > 0 && (
+          <div className="p-3 border-b border-border space-y-1.5">
+            <div className="flex justify-between text-xs"><span className="text-muted-foreground">إجمالي الهدر</span><span className="font-semibold text-warning">{formatNumber(totalWasteKg)} كج</span></div>
+            <div className="flex justify-between text-xs"><span className="text-muted-foreground">قيمة الهدر</span><span className="font-semibold text-danger">{formatNumber(totalWasteCost)} ر.س</span></div>
+          </div>
+        )}
+
+        {/* Sections */}
+        <div className="flex-1 p-2 space-y-0.5">
+          <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">الأقسام</p>
+          {sections.map(s => (
+            <button key={s.id} onClick={() => setActiveSection(s.id)}
+              className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+                activeSection === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              <s.icon className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{s.label}</span>
+              {'badge' in s && s.badge > 0 && <span className={cn('text-xs px-1.5 py-0.5 rounded-full', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{s.badge}</span>}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Log table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">سجل الهدر — {monthName(selectedMonth)} {selectedYear}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
-            <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل الأصناف</SelectItem>
-                {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="كل المصادر" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل المصادر</SelectItem>
-                <SelectItem value="web">يدوي</SelectItem>
-                <SelectItem value="google_sheet">Sheets</SelectItem>
-              </SelectContent>
-            </Select>
-            {(filterProduct || filterSource) && (
-              <Button variant="ghost" size="sm" onClick={() => { setFilterProduct(''); setFilterSource('') }}
-                className="text-muted-foreground">مسح</Button>
-            )}
+      {/* Content */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-auto p-5 space-y-5">
+        {activeSection === 'summary' && (
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">ملخص الهدر — {monthName(selectedMonth)} {selectedYear}</CardTitle></CardHeader>
+            <CardContent>
+              {isLoading ? <Skeleton className="h-48" /> : (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border bg-muted/30">{['الصنف','هدر (كج)','التكلفة (ر.س)'].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+                    <tbody>
+                      {monthlySummary.map((r, i) => (
+                        <tr key={i} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10')}>
+                          <td className="px-3 py-2 font-medium">{r.name}</td>
+                          <td className="px-3 py-2 font-semibold text-warning">{formatNumber(r.waste_kg)}</td>
+                          <td className="px-3 py-2 font-semibold text-danger">{r.cost > 0 ? formatNumber(r.cost) : <span className="text-muted-foreground">—</span>}</td>
+                        </tr>
+                      ))}
+                      {monthlySummary.length === 0 && <tr><td colSpan={3} className="px-3 py-8 text-center text-muted-foreground text-sm">لا توجد بيانات هذا الشهر</td></tr>}
+                      {monthlySummary.length > 0 && (
+                        <tr className="bg-muted/40 font-bold border-t-2 border-border">
+                          <td className="px-3 py-2.5">الإجمالي</td>
+                          <td className="px-3 py-2.5 text-warning">{formatNumber(totalWasteKg)}</td>
+                          <td className="px-3 py-2.5 text-danger">{formatNumber(totalWasteCost)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeSection === 'charts' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">الهدر حسب الكمية (كج)</CardTitle></CardHeader>
+              <CardContent>{pieDataQty.length > 0 ? <PieChart data={pieDataQty} /> : <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>}</CardContent>
+            </Card>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">الهدر حسب التكلفة (ر.س)</CardTitle></CardHeader>
+              <CardContent>{pieDataCost.length > 0 ? <PieChart data={pieDataCost} /> : <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>}</CardContent>
+            </Card>
           </div>
-          {isLoading ? (
-            <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
-          ) : (
-            <DataTable
-              data={filteredWaste}
-              columns={columns}
-              searchPlaceholder="بحث..."
-              onExportExcel={async () => {
-                await exportToExcel('waste.xlsx',
-                  ['التاريخ','الصنف','الكمية(كج)','التكلفة(ر.س)','السبب','المصدر'],
-                  filteredWaste.map(w => [
-                    w.date,
-                    w.product?.name_ar ?? '',
-                    w.waste_kg,
-                    parseFloat((w.waste_kg * getWAC(w.product_id)).toFixed(2)),
-                    w.reason ?? '',
-                    w.source === 'web' ? 'يدوي' : 'Sheets',
-                  ])
-                )
-              }}
-            />
-          )}
-        </CardContent>
-      </Card>
+        )}
+
+        {activeSection === 'log' && (
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">سجل الهدر — {monthName(selectedMonth)} {selectedYear}</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
+                  <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
+                  <SelectContent><SelectItem value="">كل الأصناف</SelectItem>{products?.map(p=><SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}</SelectContent>
+                </Select>
+                <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
+                  <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="كل المصادر" /></SelectTrigger>
+                  <SelectContent><SelectItem value="">كل المصادر</SelectItem><SelectItem value="web">يدوي</SelectItem><SelectItem value="google_sheet">Sheets</SelectItem></SelectContent>
+                </Select>
+                {(filterProduct||filterSource)&&<Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={()=>{setFilterProduct('');setFilterSource('')}}>مسح</Button>}
+              </div>
+              {isLoading ? <div className="space-y-2">{[...Array(3)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div> : (
+                <DataTable data={filteredWaste} columns={columns} searchPlaceholder="بحث..." onExportExcel={async()=>{await exportToExcel('waste.xlsx',['التاريخ','الصنف','الكمية(كج)','التكلفة(ر.س)','السبب','المصدر'],filteredWaste.map(w=>[w.date,w.product?.name_ar??'',w.waste_kg,parseFloat((w.waste_kg*getWAC(w.product_id)).toFixed(2)),w.reason??'',w.source==='web'?'يدوي':'Sheets']))}} />
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }
