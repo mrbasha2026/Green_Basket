@@ -179,7 +179,7 @@ export default function Analytics() {
         <CardContent>
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={monthlyChart} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
               <Tooltip formatter={(v: number, name: string) => [
@@ -187,9 +187,9 @@ export default function Analytics() {
                 name === 'sales' ? 'مبيعات' : name === 'purchases' ? 'مشتريات' : 'ربح'
               ]} />
               <Legend formatter={(v) => v === 'sales' ? 'مبيعات' : v === 'purchases' ? 'مشتريات' : 'ربح'} />
-              <Area type="monotone" dataKey="profit" fill="hsl(var(--success)/0.15)" stroke="hsl(var(--success))" strokeWidth={2} dot={false} name="profit" />
-              <Line type="monotone" dataKey="sales" stroke="hsl(var(--success))" strokeWidth={2} dot={false} name="sales" />
-              <Line type="monotone" dataKey="purchases" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="purchases" strokeDasharray="5 3" />
+              <Area type="monotone" dataKey="profit" fill="#dcfce7" stroke="#16a34a" strokeWidth={2} dot={false} name="profit" />
+              <Line type="monotone" dataKey="sales" stroke="#16a34a" strokeWidth={2} dot={false} name="sales" />
+              <Line type="monotone" dataKey="purchases" stroke="#2563eb" strokeWidth={2} dot={false} name="purchases" strokeDasharray="5 3" />
             </ComposedChart>
           </ResponsiveContainer>
         </CardContent>
@@ -203,11 +203,11 @@ export default function Analytics() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topCustomersChart} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
                 <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
-                <Bar dataKey="value" fill="hsl(var(--success))" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="value" fill="#16a34a" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -219,11 +219,11 @@ export default function Analytics() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topSuppliersChart} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
                 <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
-                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="value" fill="#2563eb" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -235,11 +235,11 @@ export default function Analytics() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topProductsSales} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
                 <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
-                <Bar dataKey="value" fill="hsl(var(--warning))" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

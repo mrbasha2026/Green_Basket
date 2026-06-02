@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { useSyncLogs, useSyncPendingReview, useTriggerSync, useDeleteSheetDataByMonth, useApprovePendingReview, useRejectPendingReview } from '@/hooks/useSync'
+import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/utils'
 import type { SyncLog } from '@/types'
 import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2 } from 'lucide-react'
@@ -93,12 +94,60 @@ export default function Sync() {
     { accessorKey: 'new_products_found', header: 'أصناف جديدة' },
   ]
 
+  // ── تجميع سجلات الـ Sheet في فواتير ─────────────────────────────────────────
+  async function groupSheetDataIntoInvoices(monthKey: string) {
+    const from = `${monthKey}-01`
+    const d = new Date(monthKey + '-01T12:00:00'); d.setMonth(d.getMonth() + 1); d.setDate(0)
+    const to = d.toISOString().split('T')[0]
+
+    // مشتريات: تجميع حسب اليوم → فاتورة واحدة لكل يوم
+    const { data: pRows } = await supabase.from('purchases')
+      .select('id, date, invoice_number').eq('source', 'google_sheet')
+      .is('invoice_number', null).gte('date', from).lte('date', to)
+    if (pRows && pRows.length > 0) {
+      const byDate = new Map<string, string[]>()
+      pRows.forEach(r => { const ids = byDate.get(r.date) ?? []; ids.push(r.id); byDate.set(r.date, ids) })
+      for (const [date, ids] of byDate) {
+        const { data: existing } = await supabase.from('purchases').select('invoice_number').eq('source', 'google_sheet').eq('date', date).not('invoice_number', 'is', null).limit(1)
+        let inv = existing?.[0]?.invoice_number
+        if (!inv) {
+          const { data: last } = await supabase.from('purchases').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'PIG-%').order('created_at', { ascending: false }).limit(1)
+          const lastNum = parseInt((last?.[0]?.invoice_number ?? 'PIG-00000').replace('PIG-', '')) + 1
+          inv = `PIG-${String(lastNum).padStart(5, '0')}`
+        }
+        await supabase.from('purchases').update({ invoice_number: inv }).in('id', ids)
+      }
+    }
+
+    // مبيعات: تجميع حسب اليوم + العميل → فاتورة واحدة لكل (يوم، عميل)
+    const { data: sRows } = await supabase.from('sales')
+      .select('id, date, customer_id, invoice_number').eq('source', 'google_sheet')
+      .is('invoice_number', null).gte('date', from).lte('date', to)
+    if (sRows && sRows.length > 0) {
+      const byDayCustomer = new Map<string, string[]>()
+      sRows.forEach(r => { const k = `${r.date}__${r.customer_id}`; const ids = byDayCustomer.get(k) ?? []; ids.push(r.id); byDayCustomer.set(k, ids) })
+      for (const [key, ids] of byDayCustomer) {
+        const [date, customerId] = key.split('__')
+        const { data: existing } = await supabase.from('sales').select('invoice_number').eq('source', 'google_sheet').eq('date', date).eq('customer_id', customerId).not('invoice_number', 'is', null).limit(1)
+        let inv = existing?.[0]?.invoice_number
+        if (!inv) {
+          const { data: last } = await supabase.from('sales').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'SIG-%').order('created_at', { ascending: false }).limit(1)
+          const lastNum = parseInt((last?.[0]?.invoice_number ?? 'SIG-00000').replace('SIG-', '')) + 1
+          inv = `SIG-${String(lastNum).padStart(5, '0')}`
+        }
+        await supabase.from('sales').update({ invoice_number: inv }).in('id', ids)
+      }
+    }
+  }
+
   async function handleSyncMonth(key: string) {
     const sheetId = sheetsConfig[key]
     if (!sheetId) { toast.error('أدخل Spreadsheet ID أولاً لهذا الشهر'); return }
     try {
       const result = await triggerSync({ spreadsheetId: sheetId })
-      toast.success(`تمت المزامنة — ${result.imported ?? 0} سجل`)
+      toast.loading('جاري تجميع الفواتير...', { id: 'sync-group' })
+      await groupSheetDataIntoInvoices(key)
+      toast.success(`تمت المزامنة — ${result.imported ?? 0} سجل`, { id: 'sync-group' })
     } catch (err) {
       toast.error(`فشلت المزامنة: ${(err as Error).message}`)
     }
@@ -113,6 +162,8 @@ export default function Sync() {
       await deleteSheetData(key)
       toast.loading('جاري إعادة المزامنة...', { id: 'force-sync' })
       const result = await triggerSync({ spreadsheetId: sheetId })
+      toast.loading('جاري تجميع الفواتير...', { id: 'force-sync' })
+      await groupSheetDataIntoInvoices(key)
       toast.success(`تمت المزامنة الكاملة — ${result.imported ?? 0} سجل`, { id: 'force-sync' })
     } catch (err) {
       toast.error(`فشلت المزامنة: ${(err as Error).message}`, { id: 'force-sync' })

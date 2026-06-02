@@ -28,10 +28,6 @@ import { cn } from '@/lib/utils'
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Section =
   | 'company'
-  | 'products'
-  | 'opening_balance'
-  | 'prices'
-  | 'cost_categories'
   | 'users'
   | 'system'
   | 'backup'
@@ -530,11 +526,7 @@ interface SidebarSection { id: Section; label: string; icon: React.ElementType; 
 const SECTIONS: SidebarSection[] = [
   { id: 'company', label: 'إعدادات الشركة', icon: Building2, group: 'الإعدادات العامة' },
   { id: 'system', label: 'إعدادات النظام', icon: SettingsIcon, group: 'الإعدادات العامة' },
-  { id: 'backup', label: 'النسخ الاحتياطي', icon: Archive, group: 'الإعدادات العامة' },
-  { id: 'products', label: 'إدارة الأصناف', icon: Package, group: 'بيانات التشغيل' },
-  { id: 'opening_balance', label: 'الرصيد الافتتاحي', icon: Layers, group: 'بيانات التشغيل' },
-  { id: 'prices', label: 'أسعار البيع', icon: DollarSign, group: 'بيانات التشغيل' },
-  { id: 'cost_categories', label: 'فئات التكاليف', icon: Tags, group: 'بيانات التشغيل' },
+  { id: 'backup', label: 'النسخ الاحتياطي والـ SQL', icon: Archive, group: 'الإعدادات العامة' },
   { id: 'users', label: 'إدارة المستخدمين', icon: UserCog, group: 'الصلاحيات' },
 ]
 
@@ -542,10 +534,6 @@ const CONTENT: Record<Section, ReactNode> = {
   company: <CompanyTab />,
   system: <SystemTab />,
   backup: <BackupTab />,
-  products: <ProductsTab />,
-  opening_balance: <OpeningBalanceTab />,
-  prices: <DefaultPricesTab />,
-  cost_categories: <CostCategoriesTab />,
   users: <UsersTab />,
 }
 

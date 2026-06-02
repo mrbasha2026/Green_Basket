@@ -149,12 +149,12 @@ export function CustomersDashboard() {
             <CardContent>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={barData} margin={{top:5,right:10,left:10,bottom:5}}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
                   <XAxis dataKey="name" tick={{fontSize:10}}/>
                   <YAxis tick={{fontSize:11}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
                   <Tooltip formatter={(v:number,n:string)=>[`${formatNumber(v)} ر.س`,n]}/>
-                  <Bar dataKey="الإيراد" fill="hsl(var(--primary))" radius={[3,3,0,0]}/>
-                  <Bar dataKey="الربح" fill="hsl(var(--success))" radius={[3,3,0,0]}/>
+                  <Bar dataKey="الإيراد" fill="#2563eb" radius={[3,3,0,0]}/>
+                  <Bar dataKey="الربح" fill="#16a34a" radius={[3,3,0,0]}/>
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

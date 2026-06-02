@@ -14,13 +14,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { useCostCategories, useOverheadEntries, useUpsertOverheadEntry } from '@/hooks/useOverhead'
+import { useCostCategories, useOverheadEntries, useUpsertOverheadEntry, useUpsertCostCategory } from '@/hooks/useOverhead'
 import { useCostAllocation, useMonthlyPL, useMonthlyPLHistory, useCalculateCostAllocation, useCloseMonth } from '@/hooks/useCostAllocation'
 import { useAppStore } from '@/store/appStore'
 import { formatNumber, monthName } from '@/lib/utils'
 import type { CostAllocation } from '@/types'
 import { cn } from '@/lib/utils'
-import { Lock, Calculator, FileDown, DollarSign, Layers, BarChart2, GitCompare } from 'lucide-react'
+import { Lock, Calculator, FileDown, DollarSign, Layers, BarChart2, GitCompare, Tags, Plus, Pencil } from 'lucide-react'
 
 // Month/Year selector component
 function PeriodSelector() {
@@ -489,14 +489,15 @@ function ComparisonTab() {
 }
 
 export default function CostAccounting() {
-  type CostSection = 'entry' | 'allocation' | 'pl' | 'comparison'
+  type CostSection = 'entry' | 'allocation' | 'pl' | 'comparison' | 'categories'
   const [activeTab, setActiveTab] = useState<CostSection>('entry')
 
-  const sections: { id: CostSection; label: string; icon: React.ElementType; title: string; content: ReactNode }[] = [
+  const sections: { id: CostSection; label: string; icon: React.ElementType; title: string; content?: ReactNode }[] = [
     { id: 'entry', label: 'إدخال التكاليف', icon: DollarSign, title: 'التكاليف غير المباشرة', content: <CostEntryTab /> },
     { id: 'allocation', label: 'توزيع التكاليف', icon: Layers, title: 'توزيع التكاليف على الأصناف', content: <AllocationTab /> },
     { id: 'pl', label: 'تقرير P&L', icon: BarChart2, title: 'قائمة الدخل الشهرية', content: <PLTab /> },
     { id: 'comparison', label: 'مقارنة الأشهر', icon: GitCompare, title: 'مقارنة الأشهر', content: <ComparisonTab /> },
+    { id: 'categories', label: 'فئات التكاليف', icon: Tags, title: 'إدارة فئات التكاليف' },
   ]
 
   const current = sections.find(s => s.id === activeTab)!
@@ -523,11 +524,68 @@ export default function CostAccounting() {
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col overflow-auto">
-        <Card className="m-4 flex-1 border-0 shadow-none">
-          <CardHeader className="pb-2"><CardTitle className="text-base">{current.title}</CardTitle></CardHeader>
-          <CardContent>{current.content}</CardContent>
-        </Card>
+        {activeTab === 'categories' ? (
+          <div className="p-4"><CostCategoriesInline /></div>
+        ) : (
+          <Card className="m-4 flex-1 border-0 shadow-none">
+            <CardHeader className="pb-2"><CardTitle className="text-base">{current.title}</CardTitle></CardHeader>
+            <CardContent>{current.content}</CardContent>
+          </Card>
+        )}
       </div>
+    </div>
+  )
+}
+
+// ── Cost Categories inline component ──────────────────────────────────────────
+function CostCategoriesInline() {
+  const { data: categories } = useCostCategories()
+  const { mutateAsync: upsertCat, isPending: isSaving } = useUpsertCostCategory()
+
+  type CatForm = { id?: string; name_ar: string; type: string }
+  const [editCat, setEditCat] = useState<CatForm | null>(null)
+  const [open, setOpen] = useState(false)
+
+  async function handleSave() {
+    if (!editCat?.name_ar) return
+    try { await upsertCat(editCat); setOpen(false); setEditCat(null) } catch {}
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button size="sm" className="gap-1.5" onClick={() => { setEditCat({ name_ar: '', type: 'fixed' }); setOpen(true) }}>
+          <Plus className="w-3.5 h-3.5"/>إضافة فئة
+        </Button>
+      </div>
+      <div className="rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead><tr className="bg-muted/30 border-b border-border">{['الاسم','النوع','الحالة',''].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <tbody>
+            {categories?.map((cat, i) => (
+              <tr key={cat.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10')}>
+                <td className="px-3 py-2 font-medium">{cat.name_ar}</td>
+                <td className="px-3 py-2"><span className={cn('text-xs px-2 py-0.5 rounded font-medium', cat.type==='fixed'?'bg-primary/10 text-primary':'bg-warning/10 text-warning')}>{cat.type==='fixed'?'ثابت':'متغير'}</span></td>
+                <td className="px-3 py-2"><span className={cn('text-xs font-medium', cat.is_active?'text-success':'text-muted-foreground')}>{cat.is_active?'نشط':'موقوف'}</span></td>
+                <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>{setEditCat({id:cat.id,name_ar:cat.name_ar,type:cat.type});setOpen(true)}}><Pencil className="w-3 h-3"/></Button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {open && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={()=>setOpen(false)}>
+          <div className="bg-card rounded-xl p-5 w-80 space-y-3" onClick={e=>e.stopPropagation()}>
+            <p className="font-semibold">{editCat?.id?'تعديل فئة':'إضافة فئة جديدة'}</p>
+            <div className="space-y-1"><Label className="text-xs">اسم الفئة</Label><Input value={editCat?.name_ar??''} onChange={e=>setEditCat(p=>p?({...p,name_ar:e.target.value}):p)}/></div>
+            <div className="space-y-1"><Label className="text-xs">النوع</Label>
+              <select className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm" value={editCat?.type??'fixed'} onChange={e=>setEditCat(p=>p?({...p,type:e.target.value}):p)}>
+                <option value="fixed">ثابت</option><option value="variable">متغير</option>
+              </select></div>
+            <div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={()=>setOpen(false)}>إلغاء</Button><Button size="sm" disabled={isSaving} onClick={handleSave}>{isSaving?'جاري...':'حفظ'}</Button></div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

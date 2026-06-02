@@ -8,20 +8,22 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DataTable } from '@/components/tables/DataTable'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { Combobox } from '@/components/ui/combobox'
+import { StocktakeSection } from '@/components/inventory/StocktakeSection'
 import { useEarliestInventory, useInventoryRange, useInventoryDaily, useInventoryUpTo, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
-import { usePurchasesByRange } from '@/hooks/usePurchases'
+import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWasteByRange } from '@/hooks/useWaste'
-import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
+import { useAllProducts, useUpsertProduct } from '@/hooks/useProducts'
 import { useProducts } from '@/hooks/useProducts'
 import { exportToExcel } from '@/lib/excel'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Product } from '@/types'
 import { cn } from '@/lib/utils'
-import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList } from 'lucide-react'
+import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList, Plus } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -30,12 +32,12 @@ interface InventoryBalance {
   opening_stock_kg: number; purchased_weight: number; sales_kg: number
   waste_kg: number; closing_stock_kg: number; weighted_avg_cost: number; stock_value: number
 }
-type MovType = 'شراء' | 'بيع' | 'هدر' | 'افتتاحي'
+type MovType = 'شراء' | 'بيع' | 'هدر' | 'افتتاحي' | 'مرتجع مشتريات' | 'مرتجع مبيعات'
 interface MovementRow {
   id: string; date: string; product_id: string; product_name: string
   category: string; type: MovType; qty: number; cost_per_unit: number; total: number
 }
-type Section = 'overview' | 'balance' | 'movements' | 'jard'
+type Section = 'overview' | 'balance' | 'movements' | 'jard' | 'products' | 'opening_balance'
 
 function firstOfMonth() {
   const d = new Date(todayISO() + 'T12:00:00')
@@ -46,7 +48,7 @@ function prevDay(s: string) {
   return d.toISOString().split('T')[0]
 }
 const DISABLED = '9999-01-01'
-const PIE_COLORS = ['hsl(var(--success))', 'hsl(var(--primary))', 'hsl(var(--warning))', 'hsl(var(--danger))']
+const PIE_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#dc2626']
 
 // ── Stat Card ──────────────────────────────────────────────────────────────────
 function StatCard({ title, value, sub, icon: Icon, color = 'primary' }: {
@@ -263,10 +265,12 @@ export default function Inventory() {
       }
     })
     ;(movPurchases ?? []).forEach(p => {
-      rows.push({ id: `p_${p.id}`, date: p.date, product_id: p.product_id, product_name: p.product?.name_ar ?? '—', category: p.product?.category ?? '', type: 'شراء', qty: p.total_weight ?? p.cartons_qty * p.weight_per_carton, cost_per_unit: p.cost_per_kg, total: p.total_cost ?? p.cartons_qty * p.price_per_carton })
+      const isReturn = p.transaction_type === 'مرتجع_مشتريات'
+      rows.push({ id: `p_${p.id}`, date: p.date, product_id: p.product_id, product_name: p.product?.name_ar ?? '—', category: p.product?.category ?? '', type: isReturn ? 'مرتجع مشتريات' : 'شراء', qty: p.total_weight ?? p.cartons_qty * p.weight_per_carton, cost_per_unit: p.cost_per_kg, total: p.total_cost ?? p.cartons_qty * p.price_per_carton })
     })
     ;(movSales ?? []).forEach(s => {
-      rows.push({ id: `s_${s.id}`, date: s.date, product_id: s.product_id, product_name: s.product?.name_ar ?? '—', category: s.product?.category ?? '', type: 'بيع', qty: s.qty_kg, cost_per_unit: s.price_per_kg, total: s.total_amount })
+      const isReturn = s.transaction_type === 'مرتجع_مبيعات'
+      rows.push({ id: `s_${s.id}`, date: s.date, product_id: s.product_id, product_name: s.product?.name_ar ?? '—', category: s.product?.category ?? '', type: isReturn ? 'مرتجع مبيعات' : 'بيع', qty: s.qty_kg, cost_per_unit: s.price_per_kg, total: s.total_amount })
     })
     ;(movWaste ?? []).forEach(w => {
       const wac = latestCosts?.[w.product_id] ?? 0
@@ -300,15 +304,16 @@ export default function Inventory() {
     {
       accessorKey: 'type', header: 'النوع', cell: ({ getValue }) => {
         const t = getValue() as MovType
-        const cls = t === 'شراء' ? 'bg-primary/15 text-primary' : t === 'بيع' ? 'bg-danger/15 text-danger' : t === 'هدر' ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground'
+        const cls = t === 'شراء' ? 'bg-primary/15 text-primary' : t === 'بيع' ? 'bg-danger/15 text-danger' : t === 'هدر' ? 'bg-warning/15 text-warning' : t === 'مرتجع مشتريات' ? 'bg-warning/15 text-warning' : t === 'مرتجع مبيعات' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
         return <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', cls)}>{t}</span>
       }
     },
     {
       accessorKey: 'qty', header: 'الكمية (كج)', cell: ({ row }) => {
         const v = row.original.qty; const t = row.original.type
-        const color = t === 'شراء' || t === 'افتتاحي' ? 'text-primary' : t === 'بيع' ? 'text-danger' : 'text-warning'
-        return <span className={cn('font-semibold', color)}>{t === 'بيع' || t === 'هدر' ? '−' : '+'}{formatNumber(v)}</span>
+        const isOut = t === 'بيع' || t === 'هدر' || t === 'مرتجع مشتريات'
+        const color = isOut ? 'text-danger' : 'text-primary'
+        return <span className={cn('font-semibold', color)}>{isOut ? '−' : '+'}{formatNumber(v)}</span>
       }
     },
     { accessorKey: 'cost_per_unit', header: 'السعر/كج', cell: ({ getValue }) => { const v = getValue() as number; return v > 0 ? <span className="text-xs text-muted-foreground">{formatNumber(v)}</span> : '—' } },
@@ -339,11 +344,13 @@ export default function Inventory() {
   }
 
   // ── Sidebar sections ───────────────────────────────────────────────────────
-  const sections: { id: Section; label: string; icon: React.ElementType; badge?: number }[] = [
-    { id: 'overview', label: 'لوحة المخزون', icon: BarChart2 },
-    { id: 'balance', label: 'رصيد المخزون', icon: Package, badge: inventoryBalance.length || undefined },
-    { id: 'movements', label: 'حركات المخزون', icon: TrendingDown, badge: movements.length || undefined },
-    { id: 'jard', label: 'جرد المخزون', icon: ClipboardList },
+  const sections: { id: Section; label: string; icon: React.ElementType; badge?: number; group?: string }[] = [
+    { id: 'overview', label: 'لوحة المخزون', icon: BarChart2, group: 'عرض' },
+    { id: 'balance', label: 'رصيد المخزون', icon: Package, badge: inventoryBalance.length || undefined, group: 'عرض' },
+    { id: 'movements', label: 'حركات المخزون', icon: TrendingDown, badge: movements.length || undefined, group: 'عرض' },
+    { id: 'jard', label: 'جرد المخزون', icon: ClipboardList, group: 'عرض' },
+    { id: 'products', label: 'إدارة الأصناف', icon: Layers, group: 'إدارة' },
+    { id: 'opening_balance', label: 'الرصيد الافتتاحي', icon: Plus, group: 'إدارة' },
   ]
 
   const productOptions = (products ?? []).map(p => ({ value: p.id, label: p.name_ar }))
@@ -357,29 +364,38 @@ export default function Inventory() {
         {/* Sidebar */}
         <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
           {/* Quick actions */}
-          <div className="p-3 border-b border-border space-y-2">
+          <div className="p-3 border-b border-border space-y-1.5">
             <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
             <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={() => setActiveSection('jard')}>
-              <ClipboardList className="w-3.5 h-3.5" />بدء جرد جديد
+              <ClipboardList className="w-3.5 h-3.5" />جرد جديد
             </Button>
-            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={() => setActiveSection('movements')}>
-              <TrendingDown className="w-3.5 h-3.5" />حركات المخزون
+            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={() => setActiveSection('products')}>
+              <Plus className="w-3.5 h-3.5" />إضافة صنف
+            </Button>
+            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={() => setActiveSection('opening_balance')}>
+              <Layers className="w-3.5 h-3.5" />رصيد افتتاحي
             </Button>
           </div>
 
-          {/* Sections */}
-          <div className="flex-1 p-2 space-y-0.5">
-            <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">الأقسام</p>
-            {sections.map(s => (
-              <button key={s.id} onClick={() => setActiveSection(s.id)}
-                className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
-                  activeSection === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
-                <s.icon className="w-4 h-4 shrink-0" />
-                <span className="flex-1">{s.label}</span>
-                {s.badge !== undefined && (
-                  <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{s.badge}</span>
-                )}
-              </button>
+          {/* Sections grouped */}
+          <div className="flex-1 p-2 overflow-y-auto space-y-3">
+            {(['عرض', 'إدارة'] as const).map(group => (
+              <div key={group}>
+                <p className="text-xs font-semibold text-muted-foreground px-3 py-1.5 uppercase tracking-wide">{group}</p>
+                <div className="space-y-0.5">
+                  {sections.filter(s => s.group === group).map(s => (
+                    <button key={s.id} onClick={() => setActiveSection(s.id)}
+                      className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+                        activeSection === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                      <s.icon className="w-4 h-4 shrink-0" />
+                      <span className="flex-1">{s.label}</span>
+                      {s.badge !== undefined && (
+                        <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{s.badge}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
 
@@ -443,11 +459,11 @@ export default function Inventory() {
                     ) : (
                       <ResponsiveContainer width="100%" height={200}>
                         <BarChart data={topStockChart} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                           <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                           <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
                           <Tooltip formatter={(v: number) => [`${formatNumber(v)} كج`, 'الكمية']} />
-                          <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     )}
@@ -591,8 +607,8 @@ export default function Inventory() {
                   <SelectContent><SelectItem value="">كل الفئات</SelectItem>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                 </Select>
                 <Select value={reportType} onValueChange={v => setReportType(v ?? '')}>
-                  <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder="كل الأنواع" /></SelectTrigger>
-                  <SelectContent><SelectItem value="">كل الأنواع</SelectItem><SelectItem value="افتتاحي">رصيد افتتاحي</SelectItem><SelectItem value="شراء">مشتريات</SelectItem><SelectItem value="بيع">مبيعات</SelectItem><SelectItem value="هدر">هدر</SelectItem></SelectContent>
+                  <SelectTrigger className="w-40 h-9 text-sm"><SelectValue placeholder="كل الأنواع" /></SelectTrigger>
+                  <SelectContent><SelectItem value="">كل الأنواع</SelectItem><SelectItem value="افتتاحي">رصيد افتتاحي</SelectItem><SelectItem value="شراء">مشتريات</SelectItem><SelectItem value="مرتجع مشتريات">مرتجع مشتريات</SelectItem><SelectItem value="بيع">مبيعات</SelectItem><SelectItem value="مرتجع مبيعات">مرتجع مبيعات</SelectItem><SelectItem value="هدر">هدر</SelectItem></SelectContent>
                 </Select>
                 <Button onClick={() => { setAppliedRFrom(reportFrom); setAppliedRTo(reportTo) }} className="gap-1.5 h-9">
                   <Search className="w-3.5 h-3.5" />عرض
@@ -619,128 +635,169 @@ export default function Inventory() {
             </div>
           )}
 
-          {/* ── Jard ────────────────────────────────────────────────────── */}
+          {/* ── Jard (new stocktake sessions) ───────────────────────── */}
           {activeSection === 'jard' && (
-            <div className="p-5 space-y-5">
-              <div className="flex items-end gap-3 p-4 bg-muted/30 rounded-xl border border-border">
-                <div className="space-y-1"><Label className="text-xs">تاريخ الجرد</Label>
-                  <Input type="date" value={jardDate} onChange={e => { setJardDate(e.target.value); setJardInputs({}) }} className="w-44 h-9" dir="ltr" />
-                </div>
-                <p className="text-xs text-muted-foreground pb-1">أدخل الكميات الفعلية لكل صنف في المخزن وقت الجرد</p>
-              </div>
+            <div className="p-5">
+              <StocktakeSection />
+            </div>
+          )}
 
-              {/* Saved records */}
-              {(jardExisting ?? []).length > 0 && (
-                <Card>
-                  <CardHeader><CardTitle className="text-sm flex items-center justify-between">
-                    <span>سجلات الجرد المحفوظة — {formatDate(jardDate)}</span>
-                    <Button variant="outline" size="sm" className="gap-1 h-8 text-xs" onClick={() => exportToExcel(`jard-${jardDate}.xlsx`, ['الصنف','الكمية (كج)','التكلفة/كج','القيمة'], (jardExisting ?? []).map(j => [j.product?.name_ar ?? j.product_id, j.opening_stock_kg, j.weighted_avg_cost, j.opening_stock_kg * j.weighted_avg_cost]))}>
-                      <FileDown className="w-3.5 h-3.5" />Excel
-                    </Button>
-                  </CardTitle></CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-lg border border-border">
-                      <table className="w-full text-sm">
-                        <thead><tr className="border-b border-border bg-muted/30">{['الصنف','الفئة','الكمية (كج)','التكلفة/كج','القيمة',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-                        <tbody>
-                          {(jardExisting ?? []).map(j => (
-                            <tr key={j.product_id} className="border-b last:border-b-0 border-border/50 hover:bg-muted/20">
-                              <td className="px-3 py-2 font-medium">{j.product?.name_ar ?? j.product_id}</td>
-                              <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{j.product?.category}</Badge></td>
-                              <td className="px-3 py-2">
-                                {jardEditId === j.product_id
-                                  ? <Input type="number" min="0" step="0.01" value={jardEditQty} onChange={e => setJardEditQty(e.target.value)} className="w-24 h-8 text-sm" dir="ltr" autoFocus />
-                                  : <span className="font-semibold text-success">{formatNumber(j.opening_stock_kg)}</span>}
-                              </td>
-                              <td className="px-3 py-2 text-muted-foreground">{formatNumber(j.weighted_avg_cost)}</td>
-                              <td className="px-3 py-2 font-medium text-primary">{formatNumber(j.opening_stock_kg * j.weighted_avg_cost)}</td>
-                              <td className="px-3 py-2">
-                                {jardEditId === j.product_id
-                                  ? <div className="flex gap-1"><Button size="sm" className="h-7" onClick={() => handleUpdateJard(j.product_id)} disabled={isSaving}>حفظ</Button><Button size="sm" variant="ghost" className="h-7" onClick={() => { setJardEditId(null); setJardEditQty('') }}>إلغاء</Button></div>
-                                  : <div className="flex gap-1">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setJardEditId(j.product_id); setJardEditQty(String(j.opening_stock_kg)) }}><Pencil className="w-3.5 h-3.5" /></Button>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => handleDeleteJard(j.product_id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                  </div>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+          {/* ── Products ────────────────────────────────────────────── */}
+          {activeSection === 'products' && (
+            <div className="p-5">
+              <ProductsSection />
+            </div>
+          )}
 
-              {/* New jard input */}
-              <Card>
-                <CardHeader><CardTitle className="text-sm flex items-center justify-between">
-                  <span>إدخال كميات الجرد — {formatDate(jardDate)}</span>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="gap-1 h-8 text-xs" onClick={() => exportToExcel(`jard-sheet-${jardDate}.xlsx`, ['الصنف','الفئة','الرصيد الدفتري(كج)','الكمية الفعلية(كج)','الفرق','قيمة الفرق'], (products ?? []).map(p => { const exp = (jardExpected ?? []).find(j => j.product_id === p.id); return [p.name_ar, p.category, exp?.closing_stock_kg ?? 0, '', '', ''] }))}>
-                      <FileDown className="w-3.5 h-3.5" />ورقة عدّ
-                    </Button>
-                    <Button size="sm" className="gap-1.5 h-8" onClick={handleSaveJard} disabled={isSaving}>
-                      {isSaving ? 'جاري الحفظ...' : 'حفظ الجرد'}
-                    </Button>
-                  </div>
-                </CardTitle></CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-border bg-muted/30">{['الصنف','الفئة','الرصيد الدفتري','الكمية الفعلية','الفرق','الفرق%','قيمة الفرق (ر.س)'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}</tr></thead>
-                      <tbody>
-                        {(products ?? []).map(p => {
-                          const existing = (jardExisting ?? []).find(j => j.product_id === p.id)
-                          if (existing) return null
-                          const expected = (jardExpected ?? []).find(j => j.product_id === p.id)?.closing_stock_kg ?? 0
-                          const actualStr = jardInputs[p.id] ?? ''; const actual = actualStr !== '' ? parseFloat(actualStr) : null
-                          const diff = actual !== null ? actual - expected : null
-                          const diffPct = expected > 0 && diff !== null ? (diff / expected) * 100 : null
-                          const wac = latestCosts?.[p.id] ?? 0; const diffValue = diff !== null ? diff * wac : null
-                          return (
-                            <tr key={p.id} className={cn('border-b last:border-b-0 border-border/50 hover:bg-muted/20', diff !== null && Math.abs(diff) >= 5 ? 'bg-danger/5' : diff !== null && diff !== 0 ? 'bg-warning/5' : '')}>
-                              <td className="px-3 py-2 font-medium">{p.name_ar}</td>
-                              <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
-                              <td className="px-3 py-2 text-muted-foreground font-medium">{expected > 0 ? formatNumber(expected) : '—'}</td>
-                              <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="أدخل الكمية" value={actualStr} onChange={e => setJardInputs(prev => ({ ...prev, [p.id]: e.target.value }))} className="w-28 h-8 text-sm" dir="ltr" /></td>
-                              <td className={cn('px-3 py-2 font-semibold', diff === null ? 'text-muted-foreground' : diff === 0 ? 'text-success' : diff > 0 ? 'text-success' : 'text-danger')}>
-                                {diff !== null ? (diff >= 0 ? '+' : '') + formatNumber(diff) : '—'}
-                              </td>
-                              <td className={cn('px-3 py-2 text-xs', diffPct === null ? 'text-muted-foreground' : Math.abs(diffPct) < 5 ? 'text-warning' : 'text-danger')}>
-                                {diffPct !== null ? (diffPct >= 0 ? '+' : '') + diffPct.toFixed(1) + '%' : '—'}
-                              </td>
-                              <td className={cn('px-3 py-2 font-medium', diffValue === null ? '' : diffValue >= 0 ? 'text-success' : 'text-danger')}>
-                                {diffValue !== null ? (diffValue >= 0 ? '+' : '') + formatNumber(diffValue) : '—'}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                      {Object.keys(jardInputs).length > 0 && (() => {
-                        const totalDiffValue = Object.entries(jardInputs).filter(([, v]) => v !== '').reduce((s, [pid, v]) => {
-                          const exp = (jardExpected ?? []).find(j => j.product_id === pid)?.closing_stock_kg ?? 0
-                          return s + (parseFloat(v) - exp) * (latestCosts?.[pid] ?? 0)
-                        }, 0)
-                        return (
-                          <tfoot>
-                            <tr className="bg-muted/40 border-t-2 border-border font-semibold text-sm">
-                              <td colSpan={6} className="px-3 py-2.5">إجمالي الفروقات القيمية</td>
-                              <td className={cn('px-3 py-2.5', totalDiffValue >= 0 ? 'text-success' : 'text-danger')}>
-                                {(totalDiffValue >= 0 ? '+' : '') + formatNumber(totalDiffValue)} ر.س
-                              </td>
-                            </tr>
-                          </tfoot>
-                        )
-                      })()}
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+          {/* ── Opening Balance ──────────────────────────────────────── */}
+          {activeSection === 'opening_balance' && (
+            <div className="p-5">
+              <OpeningBalanceSection />
             </div>
           )}
 
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Products Section ───────────────────────────────────────────────────────────
+function ProductsSection() {
+  const { data: products } = useAllProducts()
+  const { mutateAsync: upsert, isPending } = useUpsertProduct()
+  const [editProduct, setEditProduct] = useState<Partial<Product> | null>(null)
+  const [open, setOpen] = useState(false)
+
+  async function handleSave() {
+    if (!editProduct?.name_ar) { toast.error('اسم الصنف مطلوب'); return }
+    try { await upsert(editProduct); toast.success('تم الحفظ'); setOpen(false); setEditProduct(null) } catch { toast.error('حدث خطأ') }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{products?.length ?? 0} صنف مسجّل</p>
+        <Button size="sm" className="gap-2" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار' }); setOpen(true) }}>
+          <Plus className="w-3.5 h-3.5" />إضافة صنف
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditProduct(null) }}>
+        <DialogContent><DialogHeader><DialogTitle>{editProduct?.id ? 'تعديل صنف' : 'إضافة صنف جديد'}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1"><Label>الاسم بالعربية</Label><Input value={editProduct?.name_ar ?? ''} onChange={e => setEditProduct(p => ({ ...p, name_ar: e.target.value }))} /></div>
+            <div className="space-y-1"><Label>الاسم بالإنجليزية</Label><Input value={String(editProduct?.name_en ?? '')} onChange={e => setEditProduct(p => ({ ...p, name_en: e.target.value }))} dir="ltr" /></div>
+            <div className="space-y-1"><Label>الفئة</Label>
+              <Select value={editProduct?.category ?? 'خضار'} onValueChange={v => v && setEditProduct(p => ({ ...p, category: v as Product['category'] }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="خضار">خضار</SelectItem><SelectItem value="فاكهة">فاكهة</SelectItem><SelectItem value="أعشاب">أعشاب</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <Button onClick={handleSave} disabled={isPending} className="w-full">{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <div className="rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead><tr className="bg-muted/30 border-b border-border">{['الاسم','الإنجليزية','الفئة','الحالة',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <tbody>
+            {products?.map((p, i) => (
+              <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/20', i % 2 === 1 && 'bg-muted/10')}>
+                <td className="px-3 py-2 font-medium">{p.name_ar}</td>
+                <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{p.name_en ?? '—'}</td>
+                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                <td className="px-3 py-2"><span className={cn('text-xs font-medium', p.is_active ? 'text-success' : 'text-muted-foreground')}>{p.is_active ? 'نشط' : 'موقوف'}</span></td>
+                <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Opening Balance Section ────────────────────────────────────────────────────
+function OpeningBalanceSection() {
+  const { data: prods } = useProducts()
+  const { data: latestCosts } = useLatestPurchaseCosts()
+  const [date, setDate] = useState(() => { const d = new Date(todayISO() + 'T12:00:00'); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` })
+  const [balances, setBalances] = useState<Record<string, { qty: string; cost: string }>>({})
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editQty, setEditQty] = useState(''); const [editCost, setEditCost] = useState('')
+  const { data: existing } = useInventoryDaily(date)
+  const { mutateAsync: upsertInv, isPending: isSaving } = useUpsertInventory()
+  const { mutateAsync: del } = useDeleteInventory()
+
+  async function handleSave() {
+    const rows = Object.entries(balances).filter(([, v]) => parseFloat(v.qty) > 0).map(([pid, v]) => {
+      const qty = parseFloat(v.qty) || 0; const cost = parseFloat(v.cost) || (latestCosts?.[pid] ?? 0)
+      return { product_id: pid, date, opening_stock_kg: qty, opening_cost_per_kg: cost, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: cost }
+    })
+    if (rows.length === 0) { toast.error('أدخل كمية واحدة على الأقل'); return }
+    try { await upsertInv(rows); toast.success(`تم حفظ ${rows.length} صنف`); setBalances({}) } catch { toast.error('حدث خطأ') }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-end gap-4 p-4 bg-muted/30 rounded-xl border border-border">
+        <div className="space-y-1"><Label className="text-xs">تاريخ الرصيد الافتتاحي</Label>
+          <Input type="date" value={date} onChange={e => { setDate(e.target.value); setBalances({}) }} className="w-44 h-9" dir="ltr" /></div>
+        <p className="text-xs text-muted-foreground pb-1">يُدخل مرة واحدة في بداية استخدام النظام</p>
+      </div>
+
+      {(existing ?? []).length > 0 && (
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm">الأرصدة المحفوظة — {formatDate(date)}</CardTitle></CardHeader>
+          <CardContent>
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-muted/30 border-b border-border">{['الصنف','الفئة','الكمية (كج)','التكلفة/كج',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+                <tbody>
+                  {(existing ?? []).map(j => (
+                    <tr key={j.product_id} className="border-b last:border-b-0 border-border/50">
+                      <td className="px-3 py-2 font-medium">{j.product?.name_ar ?? j.product_id}</td>
+                      <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{j.product?.category}</Badge></td>
+                      <td className="px-3 py-2">{editId === j.product_id ? <Input type="number" min="0" step="0.01" value={editQty} onChange={e => setEditQty(e.target.value)} className="w-24 h-8 text-sm" dir="ltr" autoFocus /> : <span className="font-semibold">{formatNumber(j.opening_stock_kg)}</span>}</td>
+                      <td className="px-3 py-2">{editId === j.product_id ? <Input type="number" min="0" step="0.01" value={editCost} onChange={e => setEditCost(e.target.value)} className="w-24 h-8 text-sm" dir="ltr" /> : formatNumber(j.weighted_avg_cost)}</td>
+                      <td className="px-3 py-2">
+                        {editId === j.product_id
+                          ? <div className="flex gap-1"><Button size="sm" className="h-7" onClick={async () => { const qty = parseFloat(editQty); const cost = parseFloat(editCost); if (isNaN(qty)) return; await upsertInv([{ product_id: j.product_id, date, opening_stock_kg: qty, opening_cost_per_kg: cost||0, purchased_weight:0, purchase_cost:0, waste_kg:0, sales_kg:0, closing_stock_kg:qty, weighted_avg_cost:cost||0 }]); toast.success('تم'); setEditId(null) }} disabled={isSaving}>حفظ</Button><Button size="sm" variant="ghost" className="h-7" onClick={() => setEditId(null)}>إلغاء</Button></div>
+                          : <div className="flex gap-1"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditId(j.product_id); setEditQty(String(j.opening_stock_kg)); setEditCost(String(j.weighted_avg_cost)) }}><Pencil className="w-3.5 h-3.5" /></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => del({ product_id: j.product_id, date }).then(() => toast.success('تم الحذف'))}><Trash2 className="w-3.5 h-3.5" /></Button></div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card><CardHeader className="pb-2 flex-row items-center justify-between">
+        <CardTitle className="text-sm">إضافة أصناف جديدة</CardTitle>
+        <Button size="sm" className="h-8 gap-1.5" onClick={handleSave} disabled={isSaving}>{isSaving ? 'جاري الحفظ...' : 'حفظ الأرصدة'}</Button>
+      </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-muted/30 border-b border-border">{['الصنف','الفئة','الكمية (كج)','التكلفة/كج'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+              <tbody>
+                {(prods ?? []).map(p => {
+                  if ((existing ?? []).some(j => j.product_id === p.id)) return null
+                  return (
+                    <tr key={p.id} className="border-b last:border-b-0 border-border/50">
+                      <td className="px-3 py-2 font-medium">{p.name_ar}</td>
+                      <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                      <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0" value={balances[p.id]?.qty ?? ''} onChange={e => setBalances(prev => ({ ...prev, [p.id]: { ...prev[p.id], qty: e.target.value, cost: prev[p.id]?.cost ?? String(latestCosts?.[p.id] ?? '') } }))} className="w-28 h-8 text-sm" dir="ltr" /></td>
+                      <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder={String(latestCosts?.[p.id] ?? '0')} value={balances[p.id]?.cost ?? ''} onChange={e => setBalances(prev => ({ ...prev, [p.id]: { ...prev[p.id], cost: e.target.value, qty: prev[p.id]?.qty ?? '' } }))} className="w-28 h-8 text-sm" dir="ltr" /></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

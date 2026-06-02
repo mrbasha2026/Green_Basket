@@ -16,7 +16,7 @@ export function useSales(filters?: { customerId?: string; date?: string; product
         if (filters?.productId) data = data.filter(s => s.product_id === filters.productId)
         return data
       }
-      const q = supabase.from('sales').select('*, product:products(*), customer:customers(*)').order('date', { ascending: false })
+      const q = supabase.from('sales').select('*, product:products(*), customer:customers(*)').order('date', { ascending: false }).limit(50000)
       if (filters?.customerId) q.eq('customer_id', filters.customerId)
       if (filters?.date) q.eq('date', filters.date)
       if (filters?.productId) q.eq('product_id', filters.productId)
@@ -34,7 +34,7 @@ export function useSalesByRange(from: string, to: string) {
       if (USE_MOCK) return mockSales
       const { data, error } = await supabase
         .from('sales').select('*, product:products(*), customer:customers(*)')
-        .gte('date', from).lte('date', to).order('date', { ascending: false })
+        .gte('date', from).lte('date', to).order('date', { ascending: false }).limit(50000)
       if (error) throw error
       return data as Sale[]
     },

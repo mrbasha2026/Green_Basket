@@ -14,7 +14,7 @@ export function usePurchases(date?: string) {
       const q = supabase
         .from('purchases')
         .select('*, product:products(*), supplier:suppliers(*)')
-        .order('date', { ascending: false })
+        .order('date', { ascending: false }).limit(50000)
       if (date) q.eq('date', date)
       const { data, error } = await q
       if (error) throw error
@@ -33,7 +33,7 @@ export function usePurchasesByRange(from: string, to: string) {
         .select('*, product:products(*), supplier:suppliers(*)')
         .gte('date', from)
         .lte('date', to)
-        .order('date', { ascending: false })
+        .order('date', { ascending: false }).limit(50000)
       if (error) throw error
       return data as Purchase[]
     },

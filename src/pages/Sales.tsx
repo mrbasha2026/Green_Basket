@@ -16,7 +16,7 @@ import { useCustomers } from '@/hooks/useCustomers'
 import { useSales, useUpsertSales, useDeleteSale, useDeleteSalesByInvoice, nextSaleInvoiceNumber, getOrCreateDailySaleInvoice } from '@/hooks/useSales'
 import { useInventoryDaily } from '@/hooks/useInventory'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
-import { useCustomerPrices } from '@/hooks/useCustomerPrices'
+import { useCustomerPrices, useUpsertCustomerPrices } from '@/hooks/useCustomerPrices'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
 import type { Sale, SaleFormRow } from '@/types'
@@ -313,7 +313,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
-type Section = 'invoices'|'records'|'returns'|'customers'
+type Section = 'invoices'|'records'|'returns'|'customers'|'prices'
 
 export default function Sales() {
   const [drawerOpen,setDrawerOpen]=useState(false); const [editGroup,setEditGroup]=useState<SaleGroup|null>(null)
@@ -340,6 +340,7 @@ export default function Sales() {
     {id:'records' as Section,label:'سجل الحركات',icon:List,count:allSaleRecords.length},
     {id:'returns' as Section,label:'المرتجعات',icon:RotateCcw,count:returnGroups.length},
     {id:'customers' as Section,label:'العملاء',icon:Users,count:(customers??[]).length},
+    {id:'prices' as Section,label:'أسعار البيع',icon:ShoppingBag,count:0},
   ]
 
   function InvoicesTable({groups}:{groups:SaleGroup[]}){
@@ -429,6 +430,7 @@ export default function Sales() {
           {activeSection==='records'&&<SalesRecordsSection sales={allSaleRecords} products={products??[]} isLoading={isLoading}/>}
           {activeSection==='returns'&&<InvoicesTable groups={returnGroups}/>}
           {activeSection==='customers'&&<CustomersDashboard/>}
+          {activeSection==='prices'&&<CustomerPricesSection/>}
         </div>
       </div>
 
@@ -457,6 +459,60 @@ export default function Sales() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// ── Customer Prices Section ────────────────────────────────────────────────────
+function CustomerPricesSection() {
+  const {data:products}=useProducts(); const {data:customers}=useCustomers()
+  const [selectedCustomer,setSelectedCustomer]=useState('')
+  const [prices,setPrices]=useState<Record<string,string>>({})
+  const [bulkPrice,setBulkPrice]=useState('')
+  const {data:existingPrices}=useCustomerPrices(selectedCustomer||undefined)
+  const {mutateAsync:upsertPrices,isPending}=useUpsertCustomerPrices()
+  useEffect(()=>{
+    if(!selectedCustomer||!existingPrices)return
+    const loaded:Record<string,string>={};existingPrices.forEach(p=>{loaded[p.product_id]=String(p.price_per_kg)});setPrices(loaded)
+  },[existingPrices,selectedCustomer])
+  async function handleSave(){
+    if(!selectedCustomer){toast.error('اختر عميلاً أولاً');return}
+    const rows=Object.entries(prices).filter(([,v])=>parseFloat(v)>0).map(([productId,price])=>({customer_id:selectedCustomer,product_id:productId,price_per_kg:parseFloat(price)}))
+    if(rows.length===0){toast.error('أدخل سعراً واحداً على الأقل');return}
+    try{await upsertPrices(rows);toast.success(`تم حفظ ${rows.length} سعر`)}catch{toast.error('حدث خطأ')}
+  }
+  return(
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex flex-wrap items-end gap-3 px-5 py-3 border-b border-border bg-background/50 shrink-0">
+        <div className="space-y-1"><Label className="text-xs">العميل</Label>
+          <select className="h-9 text-sm rounded-lg border border-input bg-background px-3 w-56" value={selectedCustomer} onChange={e=>{setSelectedCustomer(e.target.value);setPrices({})}}>
+            <option value="">اختر عميلاً</option>
+            {customers?.map(c=><option key={c.id} value={c.id}>{c.name_ar}</option>)}
+          </select></div>
+        {selectedCustomer&&<>
+          <div className="space-y-1"><Label className="text-xs">سعر موحد</Label>
+            <div className="flex gap-2"><Input type="number" min="0" step="0.01" placeholder="0.00" value={bulkPrice} onChange={e=>setBulkPrice(e.target.value)} className="w-28 h-9" dir="ltr"/>
+              <Button variant="outline" className="h-9 text-xs" onClick={()=>{const v=parseFloat(bulkPrice);if(!v||!products)return;const all:Record<string,string>={};products.forEach(p=>{all[p.id]=String(v)});setPrices(all)}}>تطبيق على الكل</Button></div></div>
+          <Button onClick={handleSave} disabled={isPending} className="h-9">{isPending?'جاري الحفظ...':'حفظ الأسعار'}</Button>
+        </>}
+      </div>
+      {!selectedCustomer?(
+        <div className="flex-1 flex items-center justify-center text-muted-foreground"><p className="text-sm">اختر عميلاً لعرض وتعديل أسعار البيع الافتراضية</p></div>
+      ):(
+        <div className="overflow-auto flex-1">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border bg-muted/20 sticky top-0">{['الصنف','الفئة','سعر البيع (ر.س/كج)','السعر المحفوظ'].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+            <tbody>{products?.map(p=>{const saved=existingPrices?.find(ep=>ep.product_id===p.id);return(
+              <tr key={p.id} className="border-b border-border/40 hover:bg-muted/20">
+                <td className="px-3 py-2 font-medium text-sm">{p.name_ar}</td>
+                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0.00" value={prices[p.id]??''} onChange={e=>setPrices(prev=>({...prev,[p.id]:e.target.value}))} className="w-28 h-8 text-sm" dir="ltr"/></td>
+                <td className="px-3 py-2 text-muted-foreground text-xs">{saved?formatNumber(saved.price_per_kg):'—'}</td>
+              </tr>
+            )})}</tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

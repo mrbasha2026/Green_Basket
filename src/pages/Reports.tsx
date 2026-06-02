@@ -53,6 +53,8 @@ interface AppliedFilter {
   label: string
 }
 
+type ReportSection = 'products' | 'customers' | 'breakeven' | 'cm'
+
 export default function Reports() {
   // ── Filter inputs ──────────────────────────────────────────────────────────
   const [mode, setMode] = useState<'month' | 'range'>('month')
@@ -61,6 +63,7 @@ export default function Reports() {
   const [fromDate, setFromDate] = useState(currentFirstOfMonth())
   const [toDate, setToDate] = useState(todayISO())
   const [applied, setApplied] = useState<AppliedFilter | null>(null)
+  const [activeRep, setActiveRep] = useState<ReportSection>('products')
 
   const years = [currentYear() - 1, currentYear(), currentYear() + 1]
   const months = Array.from({ length: 12 }, (_, i) => i + 1)
@@ -282,28 +285,32 @@ export default function Reports() {
           )}
 
           {/* ── Report Sections ───────────────────────────────────────────── */}
-          {(() => {
-            type ReportSection = 'products' | 'customers' | 'breakeven' | 'cm'
-            const [activeRep, setActiveRep] = useState<ReportSection>('products')
+          {(()=>{
             const repSections: { id: ReportSection; label: string; icon: React.ElementType }[] = [
               { id: 'products', label: 'ربحية الأصناف', icon: Package },
               { id: 'customers', label: 'ربحية العملاء', icon: Users },
               { id: 'breakeven', label: 'نقطة التعادل', icon: Target },
               { id: 'cm', label: 'هامش المساهمة%', icon: TrendingUp },
             ]
-            return (
-            <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '480px' }}>
-              <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col p-2 space-y-0.5">
-                <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">نوع التقرير</p>
-                {repSections.map(s => (
-                  <button key={s.id} onClick={() => setActiveRep(s.id)}
-                    className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
-                      activeRep === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
-                    <s.icon className="w-4 h-4 shrink-0" /><span className="flex-1">{s.label}</span>
-                  </button>
-                ))}
-              </nav>
-              <div className="flex-1 min-w-0 overflow-auto p-4 space-y-4">
+            return null
+          })()}
+          <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '480px' }}>
+            <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col p-2 space-y-0.5">
+              <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">نوع التقرير</p>
+              {([
+                { id: 'products' as ReportSection, label: 'ربحية الأصناف', icon: Package },
+                { id: 'customers' as ReportSection, label: 'ربحية العملاء', icon: Users },
+                { id: 'breakeven' as ReportSection, label: 'نقطة التعادل', icon: Target },
+                { id: 'cm' as ReportSection, label: 'هامش المساهمة%', icon: TrendingUp },
+              ]).map(s => (
+                <button key={s.id} onClick={() => setActiveRep(s.id)}
+                  className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+                    activeRep === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                  <s.icon className="w-4 h-4 shrink-0" /><span className="flex-1">{s.label}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="flex-1 min-w-0 overflow-auto p-4 space-y-4">
             {activeRep === 'products' && <>
               <Card>
                 <CardHeader>
@@ -517,10 +524,8 @@ export default function Reports() {
                 </CardContent>
               </Card>
             </>}
-              </div>
             </div>
-            )
-          })()}
+          </div>
         </>
       )}
     </div>

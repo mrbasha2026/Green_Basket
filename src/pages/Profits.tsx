@@ -162,6 +162,10 @@ export default function Profits() {
         scale: 2,
         backgroundColor: '#ffffff',
         logging: false,
+        onclone: (doc) => {
+          // Remove external stylesheets to avoid @import CSS warnings during capture
+          doc.querySelectorAll('link[rel="stylesheet"]').forEach(l => l.remove())
+        },
       })
       const imgData = canvas.toDataURL('image/png')
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
