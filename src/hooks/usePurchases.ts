@@ -67,6 +67,21 @@ export function useLatestPurchaseCosts(upToDate?: string) {
   })
 }
 
+export function useDeletePurchase() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (USE_MOCK) return
+      const { error } = await supabase.from('purchases').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['purchases'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+  })
+}
+
 export function useUpsertPurchases() {
   const qc = useQueryClient()
   return useMutation({

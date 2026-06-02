@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTable } from '@/components/tables/DataTable'
-import { useEarliestInventory, useInventoryRange, useInventoryDaily, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
+import { useEarliestInventory, useInventoryRange, useInventoryDaily, useInventoryUpTo, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWasteByRange } from '@/hooks/useWaste'
@@ -134,6 +134,7 @@ export default function Inventory() {
   const { mutateAsync: upsertInventory, isPending: isSaving } = useUpsertInventory()
   const { mutateAsync: deleteInventory } = useDeleteInventory()
   const { data: jardExisting } = useInventoryDaily(jardDate)
+  const { data: jardExpected } = useInventoryUpTo(jardDate)
 
   const { data: purchasesBefore, isLoading: pbL } = usePurchasesByRange('2000-01-01', dayBefore)
   const { data: salesBefore, isLoading: sbL } = useSalesByRange('2000-01-01', dayBefore)
@@ -477,41 +478,90 @@ export default function Inventory() {
               </Card>
             )}
 
-            {/* New جرد input */}
+            {/* New جرد input — with expected vs actual comparison */}
             <Card>
               <CardHeader><CardTitle className="text-sm flex items-center justify-between">
-                <span>إدخال جرد جديد — {formatDate(jardDate)}</span>
-                <Button size="sm" onClick={handleSaveJardNew} disabled={isSaving}>
-                  {isSaving ? 'جاري الحفظ...' : 'حفظ الجرد'}
-                </Button>
+                <span>إدخال كميات الجرد — {formatDate(jardDate)}</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="gap-1" onClick={() => exportToExcel(`jard-sheet-${jardDate}.xlsx`,
+                    ['الصنف','الفئة','الرصيد الدفتري(كج)','الكمية الفعلية(كج)','الفرق','الفرق%','قيمة الفرق'],
+                    (products ?? []).map(p => {
+                      const exp = (jardExpected ?? []).find(j => j.product_id === p.id)
+                      return [p.name_ar, p.category, exp?.closing_stock_kg ?? 0, '', '', '', '']
+                    })
+                  )}>
+                    <FileDown className="w-4 h-4" /> ورقة عدّ
+                  </Button>
+                  <Button size="sm" onClick={handleSaveJardNew} disabled={isSaving}>
+                    {isSaving ? 'جاري الحفظ...' : 'حفظ الجرد'}
+                  </Button>
+                </div>
               </CardTitle></CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead><tr className="border-b border-border bg-muted/50">
-                      {['الصنف','الفئة','الكمية الفعلية (كج)','م.و.م'].map(h => (
-                        <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+                      {['الصنف','الفئة','الرصيد الدفتري(كج)','الكمية الفعلية(كج)','الفرق','الفرق%','قيمة الفرق(ر.س)'].map(h => (
+                        <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
                       {(products ?? []).map(p => {
                         const existing = (jardExisting ?? []).find(j => j.product_id === p.id)
                         if (existing) return null
+                        const expected = (jardExpected ?? []).find(j => j.product_id === p.id)?.closing_stock_kg ?? 0
+                        const actualStr = jardInputs[p.id] ?? ''
+                        const actual = actualStr !== '' ? parseFloat(actualStr) : null
+                        const diff = actual !== null ? actual - expected : null
+                        const diffPct = expected > 0 && diff !== null ? (diff / expected) * 100 : null
+                        const wac = latestCosts?.[p.id] ?? 0
+                        const diffValue = diff !== null ? diff * wac : null
                         return (
-                          <tr key={p.id} className="border-b last:border-b-0 border-border/50">
+                          <tr key={p.id} className={cn(
+                            'border-b last:border-b-0 border-border/50',
+                            diff !== null && Math.abs(diff) >= 5 ? 'bg-danger/5' : diff !== null && diff !== 0 ? 'bg-warning/5' : ''
+                          )}>
                             <td className="px-3 py-2 font-medium">{p.name_ar}</td>
                             <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
+                            <td className="px-3 py-2 font-medium text-muted-foreground">{expected > 0 ? formatNumber(expected) : '—'}</td>
                             <td className="px-3 py-2">
-                              <Input type="number" min="0" step="0.01" placeholder="0"
-                                value={jardInputs[p.id] ?? ''}
+                              <Input type="number" min="0" step="0.01" placeholder="أدخل الكمية"
+                                value={actualStr}
                                 onChange={e => setJardInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
                                 className="w-28 text-sm" dir="ltr" />
                             </td>
-                            <td className="px-3 py-2 text-muted-foreground">{formatNumber(latestCosts?.[p.id] ?? 0)}</td>
+                            <td className={cn('px-3 py-2 font-medium', diff === null ? 'text-muted-foreground' : diff === 0 ? 'text-success' : diff > 0 ? 'text-success' : 'text-danger')}>
+                              {diff !== null ? (diff >= 0 ? '+' : '') + formatNumber(diff) : '—'}
+                            </td>
+                            <td className={cn('px-3 py-2', diffPct === null ? 'text-muted-foreground' : Math.abs(diffPct) < 5 ? 'text-warning' : 'text-danger')}>
+                              {diffPct !== null ? (diffPct >= 0 ? '+' : '') + diffPct.toFixed(1) + '%' : '—'}
+                            </td>
+                            <td className={cn('px-3 py-2', diffValue === null ? '' : diffValue >= 0 ? 'text-success' : 'text-danger')}>
+                              {diffValue !== null ? (diffValue >= 0 ? '+' : '') + formatNumber(diffValue) : '—'}
+                            </td>
                           </tr>
                         )
                       })}
                     </tbody>
+                    {/* Summary row */}
+                    {Object.keys(jardInputs).length > 0 && (() => {
+                      const entries = Object.entries(jardInputs).filter(([, v]) => v !== '')
+                      const totalDiffValue = entries.reduce((s, [pid, v]) => {
+                        const exp = (jardExpected ?? []).find(j => j.product_id === pid)?.closing_stock_kg ?? 0
+                        const diff = parseFloat(v) - exp
+                        return s + diff * (latestCosts?.[pid] ?? 0)
+                      }, 0)
+                      return (
+                        <tfoot>
+                          <tr className="bg-muted/30 border-t-2 border-border font-medium text-sm">
+                            <td colSpan={6} className="px-3 py-2">إجمالي الفروقات القيمية</td>
+                            <td className={cn('px-3 py-2', totalDiffValue >= 0 ? 'text-success' : 'text-danger')}>
+                              {(totalDiffValue >= 0 ? '+' : '') + formatNumber(totalDiffValue)} ر.س
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )
+                    })()}
                   </table>
                 </div>
               </CardContent>

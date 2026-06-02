@@ -47,6 +47,21 @@ export function useSalesByRange(from: string, to: string) {
   })
 }
 
+export function useDeleteSale() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (USE_MOCK) return
+      const { error } = await supabase.from('sales').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+  })
+}
+
 export function useUpsertSales() {
   const qc = useQueryClient()
   return useMutation({

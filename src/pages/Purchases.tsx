@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { StepWizard } from '@/components/forms/StepWizard'
 import { DataTable } from '@/components/tables/DataTable'
 import { useProducts } from '@/hooks/useProducts'
-import { usePurchases, useUpsertPurchases } from '@/hooks/usePurchases'
+import { usePurchases, useUpsertPurchases, useDeletePurchase } from '@/hooks/usePurchases'
 import { calcCostPerKg } from '@/lib/calculations'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Purchase, PurchaseFormRow } from '@/types'
@@ -18,7 +18,134 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Combobox } from '@/components/ui/combobox'
 import { cn } from '@/lib/utils'
 import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
-import { FileDown, Upload } from 'lucide-react'
+import { FileDown, Upload, Printer, Trash2 } from 'lucide-react'
+import { QuickDateFilter } from '@/components/ui/quick-date-filter'
+
+// ── Invoice Preview Component ─────────────────────────────────────────────────
+function PurchaseInvoicePreview({
+  rows, products, date, invoiceType, transportCost,
+}: {
+  rows: PurchaseFormRow[]
+  products: import('@/types').Product[]
+  date: string
+  invoiceType: 'مع_فاتورة' | 'بدون_فاتورة'
+  transportCost: number
+}) {
+  const site = (() => { try { return JSON.parse(localStorage.getItem('gb_site_settings') ?? '{}') } catch { return {} } })()
+  const subtotal = rows.reduce((s, r) => s + r.cartons_qty * r.price_per_carton, 0)
+  const grandTotal = subtotal + transportCost
+
+  function handlePrint() {
+    const el = document.getElementById('purchase-invoice-print')
+    if (!el) return
+    const w = window.open('', '_blank', 'width=800,height=600')
+    if (!w) return
+    w.document.write(`
+      <html dir="rtl"><head><meta charset="utf-8">
+      <style>
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 12px; margin: 20px; direction: rtl; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 7px 10px; text-align: right; border: 1px solid #ddd; }
+        th { background: #f5f5f5; font-weight: bold; }
+        .header { display: flex; justify-content: space-between; margin-bottom: 16px; padding: 12px; border: 2px solid #16a34a; border-radius: 6px; }
+        .totals td { border: none; }
+        .totals .grand { font-weight: bold; font-size: 14px; color: #16a34a; border-top: 2px solid #16a34a; }
+        @media print { @page { size: A4; margin: 15mm; } }
+      </style></head><body>
+      ${el.innerHTML}
+      </body></html>
+    `)
+    w.document.close()
+    w.focus()
+    setTimeout(() => { w.print(); w.close() }, 300)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Invoice */}
+      <div id="purchase-invoice-print" className="border-2 border-border rounded-xl overflow-hidden">
+        {/* Header */}
+        <div className="bg-primary/5 border-b border-border p-4 flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            {site.logo && <img src={site.logo} alt="logo" className="w-12 h-12 object-contain rounded-lg" />}
+            <div>
+              <p className="font-bold text-base text-foreground">{site.name || 'Greenbasket'}</p>
+              {site.phone && <p className="text-xs text-muted-foreground">{site.phone}</p>}
+              {site.address && <p className="text-xs text-muted-foreground">{site.address}</p>}
+            </div>
+          </div>
+          <div className="text-left">
+            <p className="text-lg font-bold text-primary">فاتورة مشتريات</p>
+            <p className="text-sm text-muted-foreground mt-1">التاريخ: {formatDate(date)}</p>
+            <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', invoiceType === 'مع_فاتورة' ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning')}>
+              {invoiceType === 'مع_فاتورة' ? 'مع فاتورة' : 'بدون فاتورة'}
+            </span>
+          </div>
+        </div>
+
+        {/* Items table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b border-border">
+                {['#','الصنف','كراتين','وزن/كرتون (كج)','السعر/كرتون (ر.س)','الوزن الكلي (كج)','الإجمالي (ر.س)'].map(h => (
+                  <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const product = products.find(p => p.id === r.product_id)
+                const lineCost = r.cartons_qty * r.price_per_carton
+                const lineWeight = r.cartons_qty * r.weight_per_carton
+                return (
+                  <tr key={i} className={cn('border-b border-border/50', i % 2 === 1 ? 'bg-muted/20' : '')}>
+                    <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                    <td className="px-3 py-2 font-medium">{product?.name_ar}</td>
+                    <td className="px-3 py-2">{formatNumber(r.cartons_qty)}</td>
+                    <td className="px-3 py-2">{formatNumber(r.weight_per_carton)}</td>
+                    <td className="px-3 py-2">{formatNumber(r.price_per_carton)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{formatNumber(lineWeight)}</td>
+                    <td className="px-3 py-2 font-semibold text-foreground">{formatNumber(lineCost)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Totals */}
+        <div className="border-t border-border bg-muted/20 p-4">
+          <div className="flex justify-end">
+            <div className="w-64 space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">المجموع الفرعي</span>
+                <span className="font-medium">{formatNumber(subtotal)} ر.س</span>
+              </div>
+              {transportCost > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">مصاريف النقل</span>
+                  <span className="font-medium">{formatNumber(transportCost)} ر.س</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t border-border pt-1.5 font-bold text-base">
+                <span>الإجمالي الكلي</span>
+                <span className="text-primary">{formatNumber(grandTotal)} ر.س</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Print button */}
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
+          <Printer className="w-4 h-4" /> طباعة الفاتورة
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 const emptyRow = (): PurchaseFormRow => ({
   product_id: '',
@@ -41,16 +168,26 @@ export default function Purchases() {
   const [filterInvoice, setFilterInvoice] = useState('')
   const [importDialog, setImportDialog] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   const { data: products } = useProducts()
   const { data: purchases, isLoading } = usePurchases()
   const { mutateAsync: upsert, isPending } = useUpsertPurchases()
+  const { mutateAsync: deletePurchase, isPending: isDeleting } = useDeletePurchase()
 
   async function handleDownloadTemplate() {
     await downloadTemplate('purchases-template.xlsx',
-      ['التاريخ','اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],
-      [['2024-01-01','طماطم','10','50','15'],['2024-01-01','خيار','5','40','12']]
+      ['اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],
+      [['طماطم','10','50','15'],['خيار','5','40','12']]
+    )
+  }
+
+  function findProduct(name: string) {
+    const n = name.trim().toLowerCase()
+    return products?.find(p =>
+      p.name_ar.trim().toLowerCase() === n ||
+      (p.name_en ?? '').trim().toLowerCase() === n
     )
   }
 
@@ -62,22 +199,29 @@ export default function Purchases() {
       const parsed = await parseExcelFile(file)
       const valid = parsed.filter(r => r['اسم الصنف'] && r['كراتين'])
       if (valid.length === 0) { toast.error('لا توجد بيانات صالحة في الملف'); return }
-      const toInsert = valid.map(r => {
+
+      const unmatched = valid.filter(r => !findProduct(String(r['اسم الصنف'] ?? '')))
+      if (unmatched.length > 0) {
+        toast.warning(`لم يُطابَق ${unmatched.length} صنف: ${unmatched.map(r => r['اسم الصنف']).join('، ')}`)
+      }
+
+      const toInsert = valid.flatMap(r => {
         const productName = String(r['اسم الصنف'] ?? '')
-        const prod = products.find(p => p.name_ar === productName || p.name_en === productName)
-        const date = String(r['التاريخ'] ?? todayISO())
+        const prod = findProduct(productName)
+        if (!prod) return []
         const cartons = Number(r['كراتين'] ?? 0)
         const price = Number(r['السعر/كرتون'] ?? 0)
         const weight = Number(r['وزن/كرتون(كج)'] ?? 0)
-        return {
-          product_id: prod?.id ?? '',
-          date, cartons_qty: cartons, price_per_carton: price, weight_per_carton: weight,
+        return [{
+          product_id: prod.id,
+          date: selectedDate,
+          cartons_qty: cartons, price_per_carton: price, weight_per_carton: weight,
           waste_kg: 0,
           cost_per_kg: calcCostPerKg(cartons * price, cartons * weight, 0),
-          source: 'web' as const, notes: 'مع_فاتورة',
-        }
-      }).filter(r => r.product_id)
-      if (toInsert.length === 0) { toast.error('تأكد من مطابقة أسماء الأصناف'); return }
+          source: 'web' as const, notes: invoiceType,
+        }]
+      })
+      if (toInsert.length === 0) { toast.error('لم يُطابَق أي صنف — تأكد من الأسماء'); return }
       await upsert(toInsert)
       toast.success(`تم استيراد ${toInsert.length} سجل`)
       setImportDialog(false)
@@ -161,7 +305,20 @@ export default function Purchases() {
         ) : <span className="text-muted-foreground">—</span>
       },
     },
-  ], [])
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => (
+        <Button
+          variant="ghost" size="icon"
+          className="h-7 w-7 text-danger hover:text-danger hover:bg-danger/10"
+          onClick={() => setDeleteId(row.original.id)}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      ),
+    },
+  ], [setDeleteId])
 
   const hasFilters = filterDateFrom || filterDateTo || filterProduct || filterSource || filterInvoice
 
@@ -236,7 +393,7 @@ export default function Purchases() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border bg-muted/50">
-                            {['الصنف','كراتين','السعر/كرتون','وزن/كرتون','تكلفة/كج'].map(h => (
+                            {['الصنف','كراتين','السعر/كرتون','وزن/كرتون','تكلفة/كج','الإجمالي (ر.س)'].map(h => (
                               <th key={h} className="px-3 py-2 text-right font-medium text-muted-foreground">{h}</th>
                             ))}
                             <th className="px-3 py-2"></th>
@@ -275,6 +432,9 @@ export default function Purchases() {
                                 <td className="px-2 py-1.5 text-primary font-medium w-24">
                                   {formatNumber(costPerKg)}
                                 </td>
+                                <td className="px-2 py-1.5 font-semibold text-foreground w-28">
+                                  {totalCost > 0 ? formatNumber(totalCost) : <span className="text-muted-foreground">—</span>}
+                                </td>
                                 <td className="px-2 py-1.5">
                                   <Button
                                     variant="ghost" size="icon"
@@ -288,11 +448,24 @@ export default function Purchases() {
                         </tbody>
                       </table>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={addRow}>+ إضافة صنف</Button>
-                      <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
-                        <Upload className="w-4 h-4" /> استيراد من Excel
-                      </Button>
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={addRow}>+ إضافة صنف</Button>
+                        <Button variant="outline" size="sm" className="gap-1" onClick={() => setImportDialog(true)}>
+                          <Upload className="w-4 h-4" /> استيراد من Excel
+                        </Button>
+                      </div>
+                      {rows.some(r => r.cartons_qty > 0 && r.price_per_carton > 0) && (
+                        <div className="flex items-center gap-3 px-3 py-1.5 bg-primary/10 rounded-lg">
+                          <span className="text-sm text-muted-foreground">الإجمالي الكلي:</span>
+                          <span className="font-bold text-primary">
+                            {formatNumber(rows.reduce((s, r) => s + r.cartons_qty * r.price_per_carton, 0))} ر.س
+                          </span>
+                          {transportCost > 0 && (
+                            <span className="text-xs text-muted-foreground">+ {formatNumber(transportCost)} نقل</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ),
@@ -300,50 +473,13 @@ export default function Purchases() {
               {
                 label: 'مراجعة وحفظ',
                 component: (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>التاريخ: <span className="font-medium text-foreground">{formatDate(selectedDate)}</span></span>
-                      <span>النوع: <span className={cn(
-                        'font-medium',
-                        invoiceType === 'مع_فاتورة' ? 'text-success' : 'text-warning'
-                      )}>{invoiceType === 'مع_فاتورة' ? 'مع فاتورة' : 'بدون فاتورة'}</span></span>
-                    </div>
-                    <div className="rounded-lg border border-border overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-muted/50 border-b border-border">
-                            <th className="px-3 py-2 text-right text-muted-foreground">الصنف</th>
-                            <th className="px-3 py-2 text-right text-muted-foreground">كراتين</th>
-                            <th className="px-3 py-2 text-right text-muted-foreground">إجمالي التكلفة</th>
-                            <th className="px-3 py-2 text-right text-muted-foreground">تكلفة/كج</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.filter(r => r.product_id && r.cartons_qty > 0).map((r, i) => {
-                            const totalCost = r.cartons_qty * r.price_per_carton
-                            const totalWeight = r.cartons_qty * r.weight_per_carton
-                            const costPerKg = calcCostPerKg(totalCost, totalWeight, 0)
-                            const product = products?.find(p => p.id === r.product_id)
-                            return (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="px-3 py-2">{product?.name_ar}</td>
-                                <td className="px-3 py-2">{formatNumber(r.cartons_qty)}</td>
-                                <td className="px-3 py-2">{formatNumber(totalCost)}</td>
-                                <td className="px-3 py-2 text-primary">{formatNumber(costPerKg)}</td>
-                              </tr>
-                            )
-                          })}
-                          <tr className="bg-muted/30 font-medium">
-                            <td className="px-3 py-2" colSpan={2}>الإجمالي</td>
-                            <td className="px-3 py-2 text-primary">
-                              {formatNumber(rows.reduce((s, r) => s + r.cartons_qty * r.price_per_carton, 0))}
-                            </td>
-                            <td></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  <PurchaseInvoicePreview
+                    rows={rows.filter(r => r.product_id && r.cartons_qty > 0)}
+                    products={products ?? []}
+                    date={selectedDate}
+                    invoiceType={invoiceType}
+                    transportCost={transportCost}
+                  />
                 ),
               },
             ]}
@@ -362,7 +498,7 @@ export default function Purchases() {
             <DialogContent>
               <DialogHeader><DialogTitle>استيراد مشتريات من Excel</DialogTitle></DialogHeader>
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">يجب أن يحتوي الملف على الأعمدة: <strong>التاريخ، اسم الصنف، كراتين، السعر/كرتون، وزن/كرتون(كج)</strong></p>
+                <p className="text-sm text-muted-foreground">يجب أن يحتوي الملف على الأعمدة: <strong>اسم الصنف، كراتين، السعر/كرتون، وزن/كرتون(كج)</strong> — التاريخ يؤخذ من الخطوة الأولى</p>
                 <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="gap-1">
                   <FileDown className="w-4 h-4" /> تحميل نموذج فارغ
                 </Button>
@@ -374,44 +510,44 @@ export default function Purchases() {
             </DialogContent>
           </Dialog>
           {/* Filters */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
-            <div className="flex items-center gap-1">
-              <Label className="text-xs shrink-0">من</Label>
-              <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="text-xs h-9" dir="ltr" />
+          <div className="space-y-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+            <QuickDateFilter
+              dateFrom={filterDateFrom}
+              dateTo={filterDateTo}
+              onDateFromChange={setFilterDateFrom}
+              onDateToChange={setFilterDateTo}
+            />
+            <div className="flex flex-wrap gap-3">
+              <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">كل الأصناف</SelectItem>
+                  {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
+                <SelectTrigger className="w-36"><SelectValue placeholder="كل المصادر" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">كل المصادر</SelectItem>
+                  <SelectItem value="web">يدوي</SelectItem>
+                  <SelectItem value="google_sheet">Sheets</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterInvoice} onValueChange={v => setFilterInvoice(v ?? '')}>
+                <SelectTrigger className="w-44"><SelectValue placeholder="كل أنواع الفاتورة" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">الكل</SelectItem>
+                  <SelectItem value="مع_فاتورة">مع فاتورة</SelectItem>
+                  <SelectItem value="بدون_فاتورة">بدون فاتورة</SelectItem>
+                </SelectContent>
+              </Select>
+              {hasFilters && (
+                <Button variant="ghost" size="sm" onClick={() => {
+                  setFilterDateFrom(''); setFilterDateTo(''); setFilterProduct('')
+                  setFilterSource(''); setFilterInvoice('')
+                }} className="text-muted-foreground">مسح الفلاتر</Button>
+              )}
             </div>
-            <div className="flex items-center gap-1">
-              <Label className="text-xs shrink-0">إلى</Label>
-              <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="text-xs h-9" dir="ltr" />
-            </div>
-            <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
-              <SelectTrigger><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل الأصناف</SelectItem>
-                {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
-              <SelectTrigger><SelectValue placeholder="كل المصادر" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل المصادر</SelectItem>
-                <SelectItem value="web">يدوي</SelectItem>
-                <SelectItem value="google_sheet">Sheets</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterInvoice} onValueChange={v => setFilterInvoice(v ?? '')}>
-              <SelectTrigger><SelectValue placeholder="كل أنواع الفاتورة" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">الكل</SelectItem>
-                <SelectItem value="مع_فاتورة">مع فاتورة</SelectItem>
-                <SelectItem value="بدون_فاتورة">بدون فاتورة</SelectItem>
-              </SelectContent>
-            </Select>
-            {hasFilters && (
-              <Button variant="ghost" size="sm" onClick={() => {
-                setFilterDateFrom(''); setFilterDateTo(''); setFilterProduct('')
-                setFilterSource(''); setFilterInvoice('')
-              }} className="text-muted-foreground">مسح الفلاتر</Button>
-            )}
           </div>
           {isLoading ? (
             <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
@@ -440,6 +576,28 @@ export default function Purchases() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteId} onOpenChange={open => !open && setDeleteId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">هل أنت متأكد من حذف هذا السجل؟ لا يمكن التراجع عن هذا الإجراء.</p>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setDeleteId(null)}>إلغاء</Button>
+            <Button
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={async () => {
+                if (!deleteId) return
+                try { await deletePurchase(deleteId); toast.success('تم الحذف'); setDeleteId(null) }
+                catch { toast.error('حدث خطأ أثناء الحذف') }
+              }}
+            >
+              {isDeleting ? 'جاري الحذف...' : 'حذف'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

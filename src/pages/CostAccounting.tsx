@@ -286,9 +286,9 @@ function PLTab() {
       const html2canvas = (await import('html2canvas')).default
       const canvas = await html2canvas(el, {
         scale: 2,
-        backgroundColor: getComputedStyle(document.documentElement)
-          .getPropertyValue('--background').trim() || '#ffffff',
+        backgroundColor: '#ffffff',
         useCORS: true,
+        logging: false,
       })
       const imgData = canvas.toDataURL('image/png')
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })

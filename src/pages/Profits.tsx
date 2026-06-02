@@ -194,47 +194,58 @@ export default function Profits() {
 
   return (
     <div className="space-y-6">
-      {/* hidden capture target for PDF */}
+      {/* hidden capture target for PDF — width matched to A4 landscape usable area */}
       <div id="profits-report-content" style={{
         position: 'fixed', top: '-9999px', left: '-9999px',
-        width: '1240px', backgroundColor: '#fff', padding: '24px',
-        fontFamily: 'Tahoma, Arial, sans-serif', direction: 'rtl', fontSize: '12px',
+        width: '1060px', backgroundColor: '#fff', padding: '20px',
+        fontFamily: 'Tahoma, Arial, sans-serif', direction: 'rtl', fontSize: '11px',
       }}>
-        <div style={{ background: '#16a34a', color: '#fff', borderRadius: '8px', padding: '12px 16px', marginBottom: '12px' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '16px', margin: 0 }}>تحليل الأرباح — {fromDate} إلى {toDate}</p>
-          <p style={{ fontSize: '12px', margin: '4px 0 0', opacity: 0.9 }}>
-            الإيرادات: {formatNumber(totalRevenue)} ر.س | التكلفة: {formatNumber(totalCost)} ر.س | الربح الإجمالي: {formatNumber(totalProfit)} ر.س
+        <div style={{ background: '#16a34a', color: '#fff', borderRadius: '6px', padding: '10px 14px', marginBottom: '10px' }}>
+          <p style={{ fontWeight: 'bold', fontSize: '15px', margin: 0 }}>تحليل الأرباح — {fromDate} إلى {toDate}</p>
+          <p style={{ fontSize: '11px', margin: '3px 0 0', opacity: 0.9 }}>
+            الإيرادات: {formatNumber(totalRevenue)} ر.س | التكلفة: {formatNumber(totalCost)} ر.س | الربح: {formatNumber(totalProfit)} ر.س
           </p>
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10.5px', tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: '20%' }} />{/* الصنف */}
+            <col style={{ width: '9%' }} />{/* م.و.م */}
+            <col style={{ width: '9%' }} />{/* سعر البيع */}
+            <col style={{ width: '9%' }} />{/* هامش/كج */}
+            <col style={{ width: '8%' }} />{/* هامش% */}
+            <col style={{ width: '11%' }} />{/* الكمية */}
+            <col style={{ width: '12%' }} />{/* الإيراد */}
+            <col style={{ width: '11%' }} />{/* التكلفة */}
+            <col style={{ width: '11%' }} />{/* الربح */}
+          </colgroup>
           <thead>
             <tr style={{ background: '#f1f5f9' }}>
               {['الصنف','م.و.م','سعر البيع','هامش/كج','هامش%','الكمية(كج)','الإيراد','التكلفة','الربح'].map(h => (
-                <th key={h} style={{ padding: '8px 10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', color: '#374151', fontWeight: 'bold' }}>{h}</th>
+                <th key={h} style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', color: '#374151', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {profitRows.map((r, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontWeight: 'bold' }}>{r.name}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.avgWAC)}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.avgSellPrice)}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color: r.marginPerKg >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(r.marginPerKg)}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color: r.marginPct >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{r.marginPct.toFixed(1)}%</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.qtyKg)}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.totalRevenue)}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{formatNumber(r.totalCost)}</td>
-                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', color: r.totalProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{formatNumber(r.totalProfit)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.avgWAC)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.avgSellPrice)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left', color: r.marginPerKg >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(r.marginPerKg)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left', color: r.marginPct >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{r.marginPct.toFixed(1)}%</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.qtyKg)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.totalRevenue)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left' }}>{formatNumber(r.totalCost)}</td>
+                <td style={{ padding: '5px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'left', color: r.totalProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{formatNumber(r.totalProfit)}</td>
               </tr>
             ))}
-            <tr style={{ background: '#f1f5f9', fontWeight: 'bold' }}>
-              <td style={{ padding: '8px 10px', borderTop: '2px solid #e2e8f0' }}>الإجمالي</td>
-              <td colSpan={4} style={{ padding: '8px 10px', borderTop: '2px solid #e2e8f0' }}></td>
-              <td style={{ padding: '8px 10px', borderTop: '2px solid #e2e8f0' }}>{formatNumber(profitRows.reduce((s,r)=>s+r.qtyKg,0))}</td>
-              <td style={{ padding: '8px 10px', borderTop: '2px solid #e2e8f0' }}>{formatNumber(totalRevenue)}</td>
-              <td style={{ padding: '8px 10px', borderTop: '2px solid #e2e8f0' }}>{formatNumber(totalCost)}</td>
-              <td style={{ padding: '8px 10px', borderTop: '2px solid #e2e8f0', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(totalProfit)}</td>
+            <tr style={{ background: '#f1f5f9', fontWeight: 'bold', borderTop: '2px solid #e2e8f0' }}>
+              <td style={{ padding: '7px 8px' }}>الإجمالي</td>
+              <td colSpan={4} style={{ padding: '7px 8px' }}></td>
+              <td style={{ padding: '7px 8px', textAlign: 'left' }}>{formatNumber(profitRows.reduce((s,r)=>s+r.qtyKg,0))}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'left' }}>{formatNumber(totalRevenue)}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'left' }}>{formatNumber(totalCost)}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'left', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>{formatNumber(totalProfit)}</td>
             </tr>
           </tbody>
         </table>

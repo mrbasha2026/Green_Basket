@@ -12,7 +12,7 @@ import { DataTable } from '@/components/tables/DataTable'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
 import { useCustomers } from '@/hooks/useCustomers'
-import { useSales, useUpsertSales } from '@/hooks/useSales'
+import { useSales, useUpsertSales, useDeleteSale } from '@/hooks/useSales'
 import { useInventoryDaily } from '@/hooks/useInventory'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useCustomerPrices } from '@/hooks/useCustomerPrices'
@@ -20,8 +20,114 @@ import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import type { Sale, SaleFormRow } from '@/types'
 import { cn } from '@/lib/utils'
 import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
-import { FileDown, Upload } from 'lucide-react'
+import { FileDown, Upload, Printer, Trash2 } from 'lucide-react'
+import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { Combobox } from '@/components/ui/combobox'
+import type { Product, Customer } from '@/types'
+
+// ── Sales Invoice Preview ─────────────────────────────────────────────────────
+function SalesInvoicePreview({
+  rows, products, customers, customerId, date,
+}: {
+  rows: SaleFormRow[]
+  products: Product[]
+  customers: Customer[]
+  customerId: string
+  date: string
+}) {
+  const site = (() => { try { return JSON.parse(localStorage.getItem('gb_site_settings') ?? '{}') } catch { return {} } })()
+  const customer = customers.find(c => c.id === customerId)
+  const grandTotal = rows.reduce((s, r) => s + r.qty_kg * r.price_per_kg, 0)
+
+  function handlePrint() {
+    const el = document.getElementById('sales-invoice-print')
+    if (!el) return
+    const w = window.open('', '_blank', 'width=800,height=600')
+    if (!w) return
+    w.document.write(`
+      <html dir="rtl"><head><meta charset="utf-8">
+      <style>
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 12px; margin: 20px; direction: rtl; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 7px 10px; text-align: right; border: 1px solid #ddd; }
+        th { background: #f5f5f5; font-weight: bold; }
+        .header { display: flex; justify-content: space-between; margin-bottom: 16px; }
+        @media print { @page { size: A4; margin: 15mm; } }
+      </style></head><body>
+      ${el.innerHTML}
+      </body></html>
+    `)
+    w.document.close()
+    w.focus()
+    setTimeout(() => { w.print(); w.close() }, 300)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div id="sales-invoice-print" className="border-2 border-border rounded-xl overflow-hidden">
+        {/* Header */}
+        <div className="bg-primary/5 border-b border-border p-4 flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            {site.logo && <img src={site.logo} alt="logo" className="w-12 h-12 object-contain rounded-lg" />}
+            <div>
+              <p className="font-bold text-base text-foreground">{site.name || 'Greenbasket'}</p>
+              {site.phone && <p className="text-xs text-muted-foreground">{site.phone}</p>}
+              {site.address && <p className="text-xs text-muted-foreground">{site.address}</p>}
+            </div>
+          </div>
+          <div className="text-left">
+            <p className="text-lg font-bold text-primary">فاتورة مبيعات</p>
+            <p className="text-sm text-muted-foreground mt-1">التاريخ: {formatDate(date)}</p>
+            {customer && <p className="text-sm font-medium text-foreground mt-0.5">العميل: {customer.name_ar}</p>}
+          </div>
+        </div>
+
+        {/* Items */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b border-border">
+                {['#','الصنف','الكمية (كج)','سعر البيع (ر.س/كج)','الإجمالي (ر.س)'].map(h => (
+                  <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const product = products.find(p => p.id === r.product_id)
+                return (
+                  <tr key={i} className={cn('border-b border-border/50', i % 2 === 1 ? 'bg-muted/20' : '')}>
+                    <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                    <td className="px-3 py-2 font-medium">{product?.name_ar}</td>
+                    <td className="px-3 py-2">{formatNumber(r.qty_kg)}</td>
+                    <td className="px-3 py-2">{formatNumber(r.price_per_kg)}</td>
+                    <td className="px-3 py-2 font-semibold">{formatNumber(r.qty_kg * r.price_per_kg)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Total */}
+        <div className="border-t border-border bg-muted/20 p-4">
+          <div className="flex justify-end">
+            <div className="w-52 flex justify-between font-bold text-base border-t border-border pt-2">
+              <span>الإجمالي الكلي</span>
+              <span className="text-primary">{formatNumber(grandTotal)} ر.س</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
+          <Printer className="w-4 h-4" /> طباعة الفاتورة
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 const emptyRow = (): SaleFormRow => ({
   product_id: '',
@@ -49,8 +155,10 @@ export default function Sales() {
   const { data: inventory } = useInventoryDaily(selectedDate)
   const { data: latestCosts } = useLatestPurchaseCosts(selectedDate)
   const { data: defaultPrices } = useCustomerPrices(selectedCustomer || undefined)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const { data: sales, isLoading } = useSales(filterCustomer ? { customerId: filterCustomer } : undefined)
   const { mutateAsync: upsert, isPending } = useUpsertSales()
+  const { mutateAsync: deleteSale, isPending: isDeleting } = useDeleteSale()
 
   function getWAC(productId: string): number {
     return inventory?.find(i => i.product_id === productId)?.weighted_avg_cost
@@ -77,9 +185,22 @@ export default function Sales() {
 
   async function handleDownloadSalesTemplate() {
     await downloadTemplate('sales-template.xlsx',
-      ['التاريخ','اسم العميل','اسم الصنف','الكمية(كج)','سعر البيع'],
-      [['2024-01-01','عميل 1','طماطم','100','5.5'],['2024-01-01','عميل 1','خيار','80','4']]
+      ['اسم العميل','اسم الصنف','الكمية(كج)','سعر البيع'],
+      [['عميل 1','طماطم','100','5.5'],['عميل 1','خيار','80','4']]
     )
+  }
+
+  function findSalesProduct(name: string) {
+    const n = name.trim().toLowerCase()
+    return products?.find(p =>
+      p.name_ar.trim().toLowerCase() === n ||
+      (p.name_en ?? '').trim().toLowerCase() === n
+    )
+  }
+
+  function findCustomer(name: string) {
+    const n = name.trim().toLowerCase()
+    return customers?.find(c => c.name_ar.trim().toLowerCase() === n)
   }
 
   async function handleImportSalesFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -90,23 +211,26 @@ export default function Sales() {
       const parsed = await parseExcelFile(file)
       const valid = parsed.filter(r => r['اسم العميل'] && r['اسم الصنف'] && r['الكمية(كج)'])
       if (valid.length === 0) { toast.error('لا توجد بيانات صالحة في الملف'); return }
-      const toInsert = valid.map(r => {
-        const productName = String(r['اسم الصنف'] ?? '')
-        const customerName = String(r['اسم العميل'] ?? '')
-        const prod = products.find(p => p.name_ar === productName || p.name_en === productName)
-        const cust = customers.find(c => c.name_ar === customerName)
-        const date = String(r['التاريخ'] ?? todayISO())
-        const qty = Number(r['الكمية(كج)'] ?? 0)
-        const price = Number(r['سعر البيع'] ?? 0)
-        if (!prod || !cust) return null
-        return {
-          product_id: prod.id, customer_id: cust.id, date,
-          qty_kg: qty, price_per_kg: price,
+
+      const unmatchedProducts = valid.filter(r => !findSalesProduct(String(r['اسم الصنف'] ?? '')))
+      const unmatchedCustomers = valid.filter(r => !findCustomer(String(r['اسم العميل'] ?? '')))
+      const allUnmatched = [...new Set([...unmatchedProducts.map(r => `صنف: ${r['اسم الصنف']}`), ...unmatchedCustomers.map(r => `عميل: ${r['اسم العميل']}`)])]
+      if (allUnmatched.length > 0) toast.warning(`لم يُطابَق: ${allUnmatched.join('، ')}`)
+
+      const toInsert = valid.flatMap(r => {
+        const prod = findSalesProduct(String(r['اسم الصنف'] ?? ''))
+        const cust = findCustomer(String(r['اسم العميل'] ?? ''))
+        if (!prod || !cust) return []
+        return [{
+          product_id: prod.id, customer_id: cust.id,
+          date: selectedDate,
+          qty_kg: Number(r['الكمية(كج)'] ?? 0),
+          price_per_kg: Number(r['سعر البيع'] ?? 0),
           purchase_price_per_kg: latestCosts?.[prod.id] ?? 0,
           source: 'web' as const,
-        }
-      }).filter(Boolean) as Parameters<typeof upsert>[0]
-      if (toInsert.length === 0) { toast.error('تأكد من مطابقة أسماء الأصناف والعملاء'); return }
+        }]
+      })
+      if (toInsert.length === 0) { toast.error('لم يُطابَق أي صنف أو عميل — تأكد من الأسماء'); return }
       await upsert(toInsert)
       toast.success(`تم استيراد ${toInsert.length} سجل`)
       setImportDialog(false)
@@ -158,7 +282,20 @@ export default function Sales() {
       },
     },
     { accessorKey: 'source', header: 'المصدر', cell: ({ getValue }) => getValue() === 'web' ? 'يدوي' : 'Sheets' },
-  ], [])
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => (
+        <Button
+          variant="ghost" size="icon"
+          className="h-7 w-7 text-danger hover:text-danger hover:bg-danger/10"
+          onClick={() => setDeleteId(row.original.id)}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      ),
+    },
+  ], [setDeleteId])
 
   const filteredSales = useMemo(() => {
     let data = sales ?? []
@@ -295,38 +432,13 @@ export default function Sales() {
               {
                 label: 'مراجعة وحفظ',
                 component: (
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">
-                      العميل: {customers?.find(c => c.id === selectedCustomer)?.name_ar} — {formatDate(selectedDate)}
-                    </p>
-                    <div className="rounded-lg border border-border overflow-hidden text-sm">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="bg-muted/50 border-b border-border">
-                            {['الصنف','الكمية','سعر البيع','الإجمالي'].map(h => (
-                              <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.filter(r => r.product_id && r.qty_kg > 0).map((r, i) => (
-                            <tr key={i} className="border-b border-border/50">
-                              <td className="px-3 py-2">{products?.find(p => p.id === r.product_id)?.name_ar}</td>
-                              <td className="px-3 py-2">{formatNumber(r.qty_kg)}</td>
-                              <td className="px-3 py-2">{formatNumber(r.price_per_kg)}</td>
-                              <td className="px-3 py-2 font-medium">{formatNumber(r.qty_kg * r.price_per_kg)}</td>
-                            </tr>
-                          ))}
-                          <tr className="bg-muted/30 font-medium">
-                            <td className="px-3 py-2" colSpan={3}>الإجمالي</td>
-                            <td className="px-3 py-2 text-primary">
-                              {formatNumber(rows.reduce((s, r) => s + r.qty_kg * r.price_per_kg, 0))}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  <SalesInvoicePreview
+                    rows={rows.filter(r => r.product_id && r.qty_kg > 0)}
+                    products={products ?? []}
+                    customers={customers ?? []}
+                    customerId={selectedCustomer}
+                    date={selectedDate}
+                  />
                 ),
               },
             ]}
@@ -345,7 +457,7 @@ export default function Sales() {
             <DialogContent>
               <DialogHeader><DialogTitle>استيراد مبيعات من Excel</DialogTitle></DialogHeader>
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">يجب أن يحتوي الملف على الأعمدة: <strong>التاريخ، اسم العميل، اسم الصنف، الكمية(كج)، سعر البيع</strong></p>
+                <p className="text-sm text-muted-foreground">يجب أن يحتوي الملف على الأعمدة: <strong>اسم العميل، اسم الصنف، الكمية(كج)، سعر البيع</strong> — التاريخ يؤخذ من الخطوة الأولى</p>
                 <Button variant="outline" size="sm" onClick={handleDownloadSalesTemplate} className="gap-1">
                   <FileDown className="w-4 h-4" /> تحميل نموذج فارغ
                 </Button>
@@ -356,42 +468,42 @@ export default function Sales() {
               </div>
             </DialogContent>
           </Dialog>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
-            <Select value={filterCustomer} onValueChange={v => setFilterCustomer(v ?? '')}>
-              <SelectTrigger><SelectValue placeholder="كل العملاء" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل العملاء</SelectItem>
-                {customers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
-              <SelectTrigger><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل الأصناف</SelectItem>
-                {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
-              <SelectTrigger><SelectValue placeholder="كل المصادر" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">كل المصادر</SelectItem>
-                <SelectItem value="web">يدوي</SelectItem>
-                <SelectItem value="google_sheet">Sheets</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-1">
-              <Label className="text-xs shrink-0">من</Label>
-              <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="text-xs h-9" dir="ltr" />
+          <div className="space-y-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+            <QuickDateFilter
+              dateFrom={filterDateFrom}
+              dateTo={filterDateTo}
+              onDateFromChange={setFilterDateFrom}
+              onDateToChange={setFilterDateTo}
+            />
+            <div className="flex flex-wrap gap-3">
+              <Select value={filterCustomer} onValueChange={v => setFilterCustomer(v ?? '')}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="كل العملاء" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">كل العملاء</SelectItem>
+                  {customers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filterProduct} onValueChange={v => setFilterProduct(v ?? '')}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="كل الأصناف" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">كل الأصناف</SelectItem>
+                  {products?.map(p => <SelectItem key={p.id} value={p.id}>{p.name_ar}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filterSource} onValueChange={v => setFilterSource(v ?? '')}>
+                <SelectTrigger className="w-36"><SelectValue placeholder="كل المصادر" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">كل المصادر</SelectItem>
+                  <SelectItem value="web">يدوي</SelectItem>
+                  <SelectItem value="google_sheet">Sheets</SelectItem>
+                </SelectContent>
+              </Select>
+              {hasFilters && (
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
+                  مسح الفلاتر
+                </Button>
+              )}
             </div>
-            <div className="flex items-center gap-1">
-              <Label className="text-xs shrink-0">إلى</Label>
-              <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="text-xs h-9" dir="ltr" />
-            </div>
-            {hasFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
-                مسح الفلاتر
-              </Button>
-            )}
           </div>
 
           {isLoading ? (
@@ -420,6 +532,28 @@ export default function Sales() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteId} onOpenChange={open => !open && setDeleteId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">هل أنت متأكد من حذف هذا السجل؟ لا يمكن التراجع عن هذا الإجراء.</p>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setDeleteId(null)}>إلغاء</Button>
+            <Button
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={async () => {
+                if (!deleteId) return
+                try { await deleteSale(deleteId); toast.success('تم الحذف'); setDeleteId(null) }
+                catch { toast.error('حدث خطأ أثناء الحذف') }
+              }}
+            >
+              {isDeleting ? 'جاري الحذف...' : 'حذف'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

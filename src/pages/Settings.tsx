@@ -1,14 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAllUsers, useUpsertUserRole, usePermission, type AppRole } from '@/hooks/usePermissions'
+import { useAuth } from '@/hooks/useAuth'
 import { useAllProducts, useUpsertProduct } from '@/hooks/useProducts'
 import { useAllCustomers, useUpsertCustomer } from '@/hooks/useCustomers'
 import { useCostCategories, useUpsertCostCategory } from '@/hooks/useOverhead'
@@ -18,8 +17,9 @@ import { useCustomers } from '@/hooks/useCustomers'
 import { useUpsertInventory, useInventoryDaily, useDeleteInventory } from '@/hooks/useInventory'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import type { Product, Customer, CostCategory } from '@/types'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Package, Users, DollarSign, Tags, BarChart2, UserCog, Settings as SettingsIcon } from 'lucide-react'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 // Products Tab
 function ProductsTab() {
@@ -660,6 +660,7 @@ function UsersTab() {
   const { data: users, isLoading } = useAllUsers()
   const { mutateAsync: upsertRole, isPending } = useUpsertUserRole()
   const canEdit = usePermission('users.edit')
+  const { session } = useAuth()
 
   const ROLE_LABELS: Record<AppRole, string> = {
     admin: 'مدير',
@@ -682,7 +683,24 @@ function UsersTab() {
         <p><strong>مشاهد:</strong> عرض فقط بدون تعديل</p>
       </div>
       {(users ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">لا توجد بيانات — تأكد من إعداد جدول user_profiles في Supabase</p>
+        <div className="text-center py-8 space-y-3">
+          <p className="text-sm text-muted-foreground">لا توجد بيانات مستخدمين</p>
+          {session?.user && (
+            <Button
+              onClick={() => upsertRole({
+                id: session.user.id,
+                email: session.user.email ?? '',
+                role: 'admin',
+                name: session.user.user_metadata?.name ?? session.user.email ?? 'مدير',
+              })}
+              disabled={isPending}
+              className="gap-2"
+            >
+              {isPending ? 'جاري...' : 'سجّل نفسك مديراً للنظام'}
+            </Button>
+          )}
+          <p className="text-xs text-muted-foreground">تأكد من تشغيل SQL الخاص بجدول user_profiles في Supabase</p>
+        </div>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
@@ -724,62 +742,51 @@ function UsersTab() {
   )
 }
 
+// ── Settings sections definition ───────────────────────────────────────────
+interface Section { id: string; label: string; icon: React.ElementType; title: string; content: ReactNode }
+
 export default function Settings() {
+  const [active, setActive] = useState('products')
+
+  const sections: Section[] = [
+    { id: 'products',  label: 'الأصناف',           icon: Package,      title: 'إدارة الأصناف',                      content: <ProductsTab /> },
+    { id: 'customers', label: 'العملاء',            icon: Users,        title: 'إدارة العملاء',                       content: <CustomersTab /> },
+    { id: 'costs',     label: 'التكاليف',           icon: DollarSign,   title: 'أنواع التكاليف غير المباشرة',          content: <CostCategoriesTab /> },
+    { id: 'prices',    label: 'أسعار البيع',        icon: Tags,         title: 'أسعار البيع الافتراضية لكل عميل',      content: <DefaultPricesTab /> },
+    { id: 'opening',   label: 'الرصيد الافتتاحي',  icon: BarChart2,    title: 'الرصيد الافتتاحي للمخزون',            content: <OpeningBalanceTab /> },
+    { id: 'users',     label: 'المستخدمون',         icon: UserCog,      title: 'إدارة المستخدمين والصلاحيات',          content: <UsersTab /> },
+    { id: 'site',      label: 'بيانات الموقع',      icon: SettingsIcon, title: 'بيانات المنشأة والموقع',               content: <SiteSettingsTab /> },
+  ]
+
+  const current = sections.find(s => s.id === active) ?? sections[0]
+
   return (
-    <div className="space-y-4">
-      <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="products">الأصناف</TabsTrigger>
-          <TabsTrigger value="customers">العملاء</TabsTrigger>
-          <TabsTrigger value="costs">التكاليف</TabsTrigger>
-          <TabsTrigger value="prices">أسعار البيع</TabsTrigger>
-          <TabsTrigger value="opening">الرصيد الافتتاحي</TabsTrigger>
-          <TabsTrigger value="users">المستخدمون</TabsTrigger>
-          <TabsTrigger value="site">بيانات الموقع</TabsTrigger>
-        </TabsList>
-        <TabsContent value="products">
-          <Card>
-            <CardHeader><CardTitle className="text-base">إدارة الأصناف</CardTitle></CardHeader>
-            <CardContent><ProductsTab /></CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="customers">
-          <Card>
-            <CardHeader><CardTitle className="text-base">إدارة العملاء</CardTitle></CardHeader>
-            <CardContent><CustomersTab /></CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="costs">
-          <Card>
-            <CardHeader><CardTitle className="text-base">أنواع التكاليف غير المباشرة</CardTitle></CardHeader>
-            <CardContent><CostCategoriesTab /></CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="prices">
-          <Card>
-            <CardHeader><CardTitle className="text-base">أسعار البيع الافتراضية لكل عميل</CardTitle></CardHeader>
-            <CardContent><DefaultPricesTab /></CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="opening">
-          <Card>
-            <CardHeader><CardTitle className="text-base">الرصيد الافتتاحي للمخزون</CardTitle></CardHeader>
-            <CardContent><OpeningBalanceTab /></CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="users">
-          <Card>
-            <CardHeader><CardTitle className="text-base">إدارة المستخدمين والصلاحيات</CardTitle></CardHeader>
-            <CardContent><UsersTab /></CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="site">
-          <Card>
-            <CardHeader><CardTitle className="text-base">بيانات المنشأة والموقع</CardTitle></CardHeader>
-            <CardContent><SiteSettingsTab /></CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+    <div className="flex gap-0 min-h-[600px] rounded-xl border border-border overflow-hidden bg-card">
+      {/* Sidebar */}
+      <nav className="w-52 shrink-0 border-l border-border bg-muted/30 p-2 space-y-0.5">
+        <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">الإعدادات</p>
+        {sections.map(s => (
+          <button
+            key={s.id}
+            onClick={() => setActive(s.id)}
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
+              active === s.id
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            )}
+          >
+            <s.icon className="w-4 h-4 shrink-0" />
+            <span>{s.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0 p-6">
+        <h2 className="text-base font-semibold text-foreground mb-5 pb-3 border-b border-border">{current.title}</h2>
+        {current.content}
+      </div>
     </div>
   )
 }

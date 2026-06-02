@@ -32,8 +32,9 @@ export function Combobox({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [rect, setRect] = React.useState<{ bottom: number; left: number; width: number; openAbove: boolean } | null>(null)
 
-  const selected = options.find(o => o.value === value)
-  const filtered = options.filter(o =>
+  const uniqueOptions = options.filter((o, i, a) => a.findIndex(x => x.value === o.value) === i)
+  const selected = uniqueOptions.find(o => o.value === value)
+  const filtered = uniqueOptions.filter(o =>
     !search || o.label.toLowerCase().includes(search.toLowerCase()) || (o.sub ?? '').toLowerCase().includes(search.toLowerCase())
   )
 

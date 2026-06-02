@@ -4,7 +4,6 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
@@ -40,7 +39,6 @@ export default function Sync() {
 
   // Per-month sheets config
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>({})
-  const [showConfig, setShowConfig] = useState(false)
 
   useEffect(() => { setSheetsConfig(loadConfig()) }, [])
 
@@ -48,7 +46,6 @@ export default function Sync() {
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
-  // Build a list of the last 6 months for configuration
   const monthList = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(currentYear, currentMonth - 1 - i, 1)
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -61,18 +58,7 @@ export default function Sync() {
     saveConfig(updated)
   }
 
-  const activeSheetId = sheetsConfig[currentMonthKey()] ?? ''
-
   const lastSync = logs?.[0]
-
-  async function handleSync() {
-    try {
-      const result = await triggerSync({ spreadsheetId: activeSheetId || undefined })
-      toast.success(`تمت المزامنة — ${result.imported ?? 0} سجل`)
-    } catch (err) {
-      toast.error(`فشلت المزامنة: ${(err as Error).message}`)
-    }
-  }
 
   const pendingCustomers = pending?.filter(p => p.type === 'customer') ?? []
   const pendingProducts = pending?.filter(p => p.type === 'product') ?? []
@@ -105,91 +91,98 @@ export default function Sync() {
     { accessorKey: 'new_products_found', header: 'أصناف جديدة' },
   ]
 
+  async function handleSyncMonth(key: string) {
+    const sheetId = sheetsConfig[key]
+    if (!sheetId) { toast.error('أدخل Spreadsheet ID أولاً لهذا الشهر'); return }
+    try {
+      const result = await triggerSync({ spreadsheetId: sheetId })
+      toast.success(`تمت المزامنة — ${result.imported ?? 0} سجل`)
+    } catch (err) {
+      toast.error(`فشلت المزامنة: ${(err as Error).message}`)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Status + trigger */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground mb-3">آخر مزامنة</p>
-            {lastSync ? (
-              <div className="space-y-2">
+      {/* Status card */}
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground mb-1">حالة آخر مزامنة</p>
+              {lastSync ? (
                 <div className="flex items-center gap-2">
-                  {lastSync.status === 'success' ? (
-                    <CheckCircle className="w-4 h-4 text-success" />
-                  ) : lastSync.status === 'running' ? (
-                    <Clock className="w-4 h-4 text-warning" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-danger" />
-                  )}
-                  <span className="font-medium">{formatDateTime(lastSync.synced_at)}</span>
+                  {lastSync.status === 'success' ? <CheckCircle className="w-4 h-4 text-success" />
+                    : lastSync.status === 'running' ? <Clock className="w-4 h-4 text-warning" />
+                    : <XCircle className="w-4 h-4 text-danger" />}
+                  <span className="text-sm font-medium">{formatDateTime(lastSync.synced_at)}</span>
+                  <span className="text-xs text-muted-foreground">— {lastSync.records_imported} سجل</span>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {lastSync.records_imported} سجل مستورد
-                </p>
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">لا توجد مزامنات سابقة</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-sm text-muted-foreground mb-1">استيراد يدوي</p>
-            {activeSheetId && (
-              <p className="text-xs text-muted-foreground mb-3 font-mono truncate" dir="ltr">{activeSheetId}</p>
-            )}
-            <div className="flex gap-2">
-              <Button onClick={handleSync} disabled={syncing} className="gap-2">
-                <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'جاري الاستيراد...' : 'استيراد الآن'}
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => setShowConfig(v => !v)}>
-                <Settings2 className="w-4 h-4" />
-              </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground">لا توجد مزامنات سابقة — استخدم الجدول أدناه للمزامنة</p>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              يستورد من ملف {monthName(currentMonth)} {currentYear}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Per-month sheets configuration */}
-      {showConfig && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Settings2 className="w-4 h-4" />
-              إعداد ملفات Google Sheets الشهرية
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-4">
-              أدخل معرّف الـ Spreadsheet ID لكل شهر (موجود في رابط الـ Sheet بعد /d/ وقبل /edit)
-            </p>
-            <div className="space-y-3">
-              {monthList.map(({ key, year, month }) => (
-                <div key={key} className="flex items-center gap-3">
-                  <Label className="w-28 text-sm shrink-0">
-                    {monthName(month)} {year}
-                    {key === currentMonthKey() && <span className="text-xs text-primary mr-1">(الحالي)</span>}
-                  </Label>
-                  <Input
-                    dir="ltr"
-                    placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-                    value={sheetsConfig[key] ?? ''}
-                    onChange={e => updateSheetId(key, e.target.value)}
-                    className="text-xs font-mono"
-                  />
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">يُحفظ تلقائياً في المتصفح</p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Per-month configuration + sync buttons */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings2 className="w-4 h-4" />
+            إعداد ومزامنة ملفات Google Sheets الشهرية
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground mb-4">
+            أدخل Spreadsheet ID لكل شهر (موجود في رابط الـ Sheet بعد <span dir="ltr">/d/</span> وقبل <span dir="ltr">/edit</span>)، ثم اضغط مزامنة
+          </p>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border">
+                  <th className="px-3 py-2 text-right text-muted-foreground font-medium w-32">الشهر</th>
+                  <th className="px-3 py-2 text-right text-muted-foreground font-medium">Spreadsheet ID</th>
+                  <th className="px-3 py-2 text-right text-muted-foreground font-medium w-24"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthList.map(({ key, year, month }) => (
+                  <tr key={key} className="border-b last:border-b-0 border-border/50">
+                    <td className="px-3 py-2.5 font-medium whitespace-nowrap">
+                      {monthName(month)} {year}
+                      {key === currentMonthKey() && <span className="text-xs text-primary mr-1.5 font-normal">(الحالي)</span>}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <Input
+                        dir="ltr"
+                        placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                        value={sheetsConfig[key] ?? ''}
+                        onChange={e => updateSheetId(key, e.target.value)}
+                        className="text-xs font-mono h-8"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <Button
+                        size="sm"
+                        variant={sheetsConfig[key] ? 'default' : 'outline'}
+                        disabled={syncing || !sheetsConfig[key]}
+                        onClick={() => handleSyncMonth(key)}
+                        className="gap-1.5 h-8 text-xs w-full"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                        مزامنة
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">يُحفظ تلقائياً في المتصفح</p>
+        </CardContent>
+      </Card>
 
       {/* Pending review */}
       {pendingCustomers.length > 0 && (
