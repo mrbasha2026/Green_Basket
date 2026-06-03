@@ -23,6 +23,8 @@ import { exportToExcel, parseExcelFile } from '@/lib/excel'
 import type { Sale, SaleFormRow } from '@/types'
 import { cn } from '@/lib/utils'
 import { Plus, Trash2, Printer, Upload, FileDown, ShoppingBag, RotateCcw, FileText, Eye, Pencil, Users, List } from 'lucide-react'
+import { DataTable } from '@/components/tables/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
 import { supabase } from '@/lib/supabase'
 
 // ── Sale group type ───────────────────────────────────────────────────────────
@@ -252,7 +254,6 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
   const [filterCustomer, setFilterCustomer] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterType, setFilterType] = useState<'all'|'sale'|'return'>('all')
-  const [deleteId, setDeleteId] = useState<string|null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const {data:customers}=useCustomers()
   const {mutateAsync:deleteSale,isPending:isDeleting}=useDeleteSale()
@@ -271,92 +272,92 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
   const customerOptions=(customers??[]).map(c=>({value:c.id,label:c.name_ar}))
   const productOptions=products.map(p=>({value:p.id,label:p.name_ar}))
 
+  const columns = useMemo<ColumnDef<Sale>[]>(() => [
+    {
+      id: 'select',
+      header: () => (
+        <input type="checkbox" className="rounded"
+          checked={filtered.length > 0 && filtered.every(s => selectedIds.has(s.id))}
+          onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(s => s.id)) : new Set())}
+        />
+      ),
+      cell: ({ row }) => (
+        <input type="checkbox" className="rounded" checked={selectedIds.has(row.original.id)}
+          onChange={e => setSelectedIds(prev => { const n=new Set(prev); e.target.checked?n.add(row.original.id):n.delete(row.original.id); return n })}
+        />
+      ),
+      enableSorting: false,
+    },
+    { accessorKey: 'date', header: 'التاريخ', cell: ({ getValue }) => <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(getValue() as string)}</span> },
+    { accessorKey: 'transaction_type', header: 'النوع', cell: ({ getValue }) => {
+      const isReturn = getValue() === 'مرتجع_مبيعات'
+      return <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', isReturn?'bg-warning/15 text-warning':'bg-success/15 text-success')}>{isReturn?'مرتجع':'بيع'}</span>
+    }},
+    { accessorFn: r => r.customer?.name_ar ?? '—', id: 'customer', header: 'العميل', cell: ({ getValue }) => <span className="font-medium text-xs">{getValue() as string}</span> },
+    { accessorFn: r => products.find(p=>p.id===r.product_id)?.name_ar ?? '—', id: 'product', header: 'الصنف', cell: ({ getValue }) => <span className="text-xs">{getValue() as string}</span> },
+    { accessorKey: 'invoice_number', header: 'الفاتورة', cell: ({ getValue }) => {
+      const v = getValue() as string|null
+      return v ? <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{v}</span> : <span className="text-muted-foreground text-xs">—</span>
+    }},
+    { accessorKey: 'qty_kg', header: 'الكمية(كج)', cell: ({ getValue }) => <span className="text-xs">{formatNumber(getValue() as number)}</span> },
+    { accessorKey: 'price_per_kg', header: 'سعر البيع', cell: ({ getValue }) => <span className="text-xs">{formatNumber(getValue() as number)}</span> },
+    { accessorKey: 'total_amount', header: 'الإجمالي', cell: ({ getValue }) => <span className="font-semibold text-xs">{formatNumber(getValue() as number)}</span> },
+    { id: 'profit', header: 'الربح', cell: ({ row }) => {
+      const profit = row.original.total_amount - row.original.total_purchase
+      return <span className={cn('text-xs font-medium', profit>=0?'text-success':'text-danger')}>{formatNumber(profit)}</span>
+    }},
+    { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => (
+      <Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10"
+        onClick={async () => { await deleteSale(row.original.id); toast.success('تم الحذف') }}>
+        <Trash2 className="w-3 h-3"/>
+      </Button>
+    )},
+  ], [filtered, selectedIds, products, isDeleting])
+
   function handleExport(){
-    exportToExcel(filtered.map(s=>({'التاريخ':s.date,'النوع':s.transaction_type==='مرتجع_مبيعات'?'مرتجع':'بيع','العميل':s.customer?.name_ar??'','الصنف':products.find(p=>p.id===s.product_id)?.name_ar??'','رقم الفاتورة':s.invoice_number??'—','الكمية(كج)':s.qty_kg,'م.و.م':s.purchase_price_per_kg,'سعر البيع':s.price_per_kg,'الإجمالي':s.total_amount,'الربح':s.total_amount-s.total_purchase})),'سجل-الحركات')
+    exportToExcel(filtered.map(s=>({'التاريخ':s.date,'النوع':s.transaction_type==='مرتجع_مبيعات'?'مرتجع':'بيع','العميل':s.customer?.name_ar??'','الصنف':products.find(p=>p.id===s.product_id)?.name_ar??'','رقم الفاتورة':s.invoice_number??'—','الكمية(كج)':s.qty_kg,'م.و.م':s.purchase_price_per_kg,'سعر البيع':s.price_per_kg,'الإجمالي':s.total_amount,'الربح':s.total_amount-s.total_purchase})),'سجل-المبيعات')
     toast.success('تم تصدير Excel')
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-border bg-background/50 shrink-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <QuickDateFilter from={filterDateFrom} to={filterDateTo} onFromChange={setFilterDateFrom} onToChange={setFilterDateTo}/>
-          <div className="flex rounded-lg overflow-hidden border border-border text-xs">
-            {(['all','sale','return'] as const).map(t=>(
-              <button key={t} onClick={()=>setFilterType(t)}
-                className={cn('px-3 py-1.5 font-medium transition-colors',filterType===t?'bg-primary text-primary-foreground':'bg-background text-muted-foreground hover:bg-muted')}>
-                {t==='all'?'الكل':t==='sale'?'مبيعات':'مرتجعات'}
-              </button>
-            ))}
-          </div>
-          <div className="w-40"><Combobox options={[{value:'',label:'كل العملاء'},...customerOptions]} value={filterCustomer} onValueChange={setFilterCustomer} placeholder="كل العملاء"/></div>
-          <div className="w-40"><Combobox options={[{value:'',label:'كل الأصناف'},...productOptions]} value={filterProduct} onValueChange={setFilterProduct} placeholder="كل الأصناف"/></div>
-          {(filterDateFrom||filterDateTo||filterCustomer||filterProduct||filterType!=='all')&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterCustomer('');setFilterProduct('');setFilterType('all')}}>مسح</Button>}
+    <div className="flex-1 flex flex-col overflow-hidden p-4 space-y-3">
+      {/* فلاتر */}
+      <div className="flex flex-wrap items-center gap-2">
+        <QuickDateFilter from={filterDateFrom} to={filterDateTo} onFromChange={setFilterDateFrom} onToChange={setFilterDateTo}/>
+        <div className="flex rounded-lg overflow-hidden border border-border text-xs">
+          {(['all','sale','return'] as const).map(t=>(
+            <button key={t} onClick={()=>setFilterType(t)}
+              className={cn('px-3 py-1.5 font-medium transition-colors',filterType===t?'bg-primary text-primary-foreground':'bg-background text-muted-foreground hover:bg-muted')}>
+              {t==='all'?'الكل':t==='sale'?'مبيعات':'مرتجعات'}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
-              <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
-                onClick={async () => { for (const id of selectedIds) { await deleteSale(id) } setSelectedIds(new Set()); toast.success(`تم حذف ${selectedIds.size} سجل`) }}>
-                <Trash2 className="w-3 h-3"/>حذف المحدد
-              </Button>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>إلغاء</Button>
-            </div>
-          )}
-          <span className="text-xs text-muted-foreground">{filtered.length} سجل</span>
-          <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleExport}><FileDown className="w-3 h-3"/>تصدير Excel</Button>
-        </div>
+        <div className="w-40"><Combobox options={[{value:'',label:'كل العملاء'},...customerOptions]} value={filterCustomer} onValueChange={setFilterCustomer} placeholder="كل العملاء"/></div>
+        <div className="w-40"><Combobox options={[{value:'',label:'كل الأصناف'},...productOptions]} value={filterProduct} onValueChange={setFilterProduct} placeholder="كل الأصناف"/></div>
+        {(filterDateFrom||filterDateTo||filterCustomer||filterProduct||filterType!=='all')&&
+          <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-8" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterCustomer('');setFilterProduct('');setFilterType('all')}}>مسح</Button>}
+        {selectedIds.size > 0 && (
+          <>
+            <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
+              onClick={async () => { for (const id of selectedIds) await deleteSale(id); setSelectedIds(new Set()); toast.success(`تم حذف ${selectedIds.size} سجل`) }}>
+              <Trash2 className="w-3 h-3"/>حذف المحدد
+            </Button>
+          </>
+        )}
       </div>
-      {isLoading?(
-        <div className="space-y-2 p-5">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div>
-      ):filtered.length===0?(
-        <div className="flex-1 flex items-center justify-center text-muted-foreground"><div className="text-center"><List className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد سجلات</p></div></div>
-      ):(
-        <div className="overflow-auto max-h-[520px] flex-1">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10">
-              <tr className="border-b border-border bg-muted/80">
-                <th className="px-3 py-3 w-10">
-                  <input type="checkbox" className="rounded"
-                    checked={filtered.length > 0 && filtered.every(s => selectedIds.has(s.id))}
-                    onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(s => s.id)) : new Set())}
-                  />
-                </th>
-                {['التاريخ','النوع','العميل','الصنف','الفاتورة','الكمية(كج)','سعر البيع','الإجمالي','الربح',''].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((s,i)=>{const profit=s.total_amount-s.total_purchase;const isReturn=s.transaction_type==='مرتجع_مبيعات';const isSelected=selectedIds.has(s.id);return(
-                <tr key={s.id} className={cn('border-b border-border/40 hover:bg-muted/20',i%2===1&&'bg-muted/10',isReturn&&'bg-warning/5',isSelected&&'bg-primary/5')}>
-                  <td className="px-3 py-2">
-                    <input type="checkbox" className="rounded" checked={isSelected}
-                      onChange={e => setSelectedIds(prev => { const n=new Set(prev); e.target.checked?n.add(s.id):n.delete(s.id); return n })}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(s.date)}</td>
-                  <td className="px-3 py-2"><span className={cn('text-xs px-1.5 py-0.5 rounded font-medium',isReturn?'bg-warning/15 text-warning':'bg-success/15 text-success')}>{isReturn?'مرتجع':'بيع'}</span></td>
-                  <td className="px-3 py-2 font-medium text-xs">{s.customer?.name_ar??'—'}</td>
-                  <td className="px-3 py-2 text-xs">{products.find(p=>p.id===s.product_id)?.name_ar??'—'}</td>
-                  <td className="px-3 py-2">{s.invoice_number?<span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{s.invoice_number}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
-                  <td className="px-3 py-2 text-xs">{formatNumber(s.qty_kg)}</td>
-                  <td className="px-3 py-2 text-xs">{formatNumber(s.price_per_kg)}</td>
-                  <td className="px-3 py-2 font-semibold text-xs">{formatNumber(s.total_amount)}</td>
-                  <td className={cn('px-3 py-2 text-xs font-medium',profit>=0?'text-success':'text-danger')}>{formatNumber(profit)}</td>
-                  <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10" onClick={()=>setDeleteId(s.id)}><Trash2 className="w-3 h-3"/></Button></td>
-                </tr>
-              )})}
-            </tbody>
-          </table>
-        </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div>
+      ) : (
+        <DataTable
+          data={filtered}
+          columns={columns}
+          showSearch={false}
+          defaultPageSize={50}
+          onExportExcel={handleExport}
+        />
       )}
-      <Dialog open={!!deleteId} onOpenChange={o=>!o&&setDeleteId(null)}>
-        <DialogContent className="max-w-sm"><DialogHeader><DialogTitle>حذف السجل</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">هل تريد حذف هذا السجل؟</p>
-          <div className="flex justify-end gap-2 pt-2"><Button variant="outline" size="sm" onClick={()=>setDeleteId(null)}>إلغاء</Button>
-            <Button variant="destructive" size="sm" disabled={isDeleting} onClick={async()=>{if(!deleteId)return;await deleteSale(deleteId);toast.success('تم الحذف');setDeleteId(null)}}>{isDeleting?'جاري...':'حذف'}</Button></div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -13,10 +13,18 @@ export const SYSTEM_SHEETS = [
   'Copy of new ',
 ]
 
+// تحويل الأرقام الهندية/العربية (٠-٩ و ۰-۹) إلى أرقام لاتينية
+function normalizeDigits(s: string): string {
+  return s
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))  // Arabic-Indic
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0))  // Extended Arabic-Indic
+}
+
 // يحوّل القيم العربية (٫ للعشري، ٬ أو , للآلاف) إلى أرقام صحيحة
 function parseNum(val: unknown): number {
   if (val === null || val === undefined) return 0
-  const s = String(val)
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0
+  const s = normalizeDigits(String(val))
     .replace(/٬|،/g, '')    // فاصل الآلاف العربي
     .replace(/,/g, '')       // فاصل الآلاف الإنجليزي
     .replace(/٫/g, '.')     // الفاصل العشري العربي → إنجليزي
@@ -26,26 +34,36 @@ function parseNum(val: unknown): number {
 
 // يحوّل تاريخ النص إلى Date بتوقيت UTC لتجنب فارق المنطقة الزمنية
 function parseDateStr(val: unknown): Date | null {
-  if (!val) return null
+  if (val === null || val === undefined || val === '') return null
   if (val instanceof Date) {
     return new Date(Date.UTC(val.getFullYear(), val.getMonth(), val.getDate()))
   }
-  const s = String(val).trim()
+  // رقم serial من Excel (عدد الأيام منذ 1899-12-30)
+  if (typeof val === 'number' && val > 0) {
+    // نطاق ضيق: 2020–2035 فقط (serial ≈ 43831–49353) لتجنب تفسير الأرقام العادية كتواريخ
+    if (val < 43831 || val > 49353) return null
+    const ms = Math.round((val - 25569) * 86400 * 1000)
+    const d = new Date(ms)
+    const year = d.getUTCFullYear()
+    if (year < 2020 || year > 2035) return null
+    return new Date(Date.UTC(year, d.getUTCMonth(), d.getUTCDate()))
+  }
+  const s = normalizeDigits(String(val).trim())
 
   // تنسيق YYYY-MM-DD
   const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (ymd) return new Date(Date.UTC(+ymd[1], +ymd[2] - 1, +ymd[3]))
 
-  // تنسيق MM/DD/YYYY أو DD/MM/YYYY — نحاول كليهما
+  // تنسيق MM/DD/YYYY أو DD/MM/YYYY
   const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (slash) {
     const [, a, b, y] = slash
-    // إذا كان الجزء الأول > 12 فهو يوم بالتأكيد (DD/MM/YYYY)
+    // إذا كان الأول > 12 فهو يوم حتماً (DD/MM/YYYY)
     if (+a > 12) return new Date(Date.UTC(+y, +b - 1, +a))
-    // وإذا كان الثاني > 12 فهو يوم (MM/DD/YYYY)
+    // إذا كان الثاني > 12 فهو يوم حتماً (MM/DD/YYYY)
     if (+b > 12) return new Date(Date.UTC(+y, +a - 1, +b))
-    // كلاهما ≤ 12: نفترض DD/MM/YYYY (الأكثر شيوعاً في السعودية)
-    return new Date(Date.UTC(+y, +b - 1, +a))
+    // كلاهما ≤ 12: الشيت يستخدم MM/DD/YYYY (تنسيق أمريكي)
+    return new Date(Date.UTC(+y, +a - 1, +b))
   }
 
   // تنسيق DD-MM-YYYY
@@ -55,24 +73,54 @@ function parseDateStr(val: unknown): Date | null {
   return null
 }
 
+// يبحث عن صف التواريخ (أول صف يحوي تاريخين فأكثر) بدلاً من افتراض الصف 0.
+// يُرجع رقم الصف وقائمة الأعمدة التي تحوي تواريخ.
+function detectDateRow(
+  rows: unknown[][],
+  startCol: number,
+): { headerRow: number; dates: { col: number; date: Date }[] } {
+  // نفحص أول 10 صفوف بحثاً عن أكثر صف يحتوي تواريخ
+  const limit = Math.min(rows.length, 10)
+  let best = { headerRow: 0, dates: [] as { col: number; date: Date }[] }
+
+  for (let row = 0; row < limit; row++) {
+    const r = rows[row] as unknown[]
+    if (!r) continue
+    const dates: { col: number; date: Date }[] = []
+    for (let col = startCol; col < r.length; col++) {
+      const d = parseDateStr(r[col])
+      if (d) dates.push({ col, date: d })
+    }
+    if (dates.length > best.dates.length) best = { headerRow: row, dates }
+  }
+  return best
+}
+
+// تخطي الصفوف التي ليست منتجات (فارغة، أو عناوين تاريخ، أو إجماليات)
+function isSkippableRow(productName: string): boolean {
+  if (!productName) return true
+  // صف فاصل يحوي تاريخاً في العمود الأول
+  if (/^\d{1,4}[\/-]\d{1,2}([\/-]\d{1,4})?$/.test(productName)) return true
+  // صفوف الإجماليات/المجاميع
+  if (/^(الإجمالي|الاجمالي|اجمالي|المجموع|الإجماليات|total)/i.test(productName)) return true
+  return false
+}
+
 export function parseCustomerSheet(rows: unknown[][]): SaleRecord[] {
   const DATE_START_COL = 2
   const records: SaleRecord[] = []
 
   if (!rows || rows.length < 2) return records
 
-  // فحص كل الأعمدة بدلاً من القفز بخطوات ثابتة — يتعامل مع أعمدة إضافية
-  const dates: { col: number; date: Date }[] = []
-  for (let col = DATE_START_COL; col < (rows[0] as unknown[]).length; col++) {
-    const d = parseDateStr(rows[0][col])
-    if (d) dates.push({ col, date: d })
-  }
+  // اكتشاف صف التواريخ ديناميكياً (لا نفترض الصف 0)
+  const { headerRow, dates } = detectDateRow(rows, DATE_START_COL)
+  if (dates.length === 0) return records
 
-  for (let row = 2; row < rows.length; row++) {
+  // البيانات تبدأ من الصف الذي يلي صف التواريخ
+  for (let row = headerRow + 1; row < rows.length; row++) {
+    if (!rows[row]) continue
     const productName = String(rows[row][0] ?? '').trim()
-    if (!productName) continue
-    // تخطي صفوف الفواصل (تحتوي على تاريخ في العمود الأول)
-    if (/^\d{1,4}[\/-]\d{1,2}([\/-]\d{1,4})?$/.test(productName)) continue
+    if (isSkippableRow(productName)) continue
 
     for (const { col, date } of dates) {
       const qty       = parseNum(rows[row][col])
@@ -96,17 +144,15 @@ export function parsePurchasesSheet(rows: unknown[][]): PurchaseRecord[] {
 
   if (!rows || rows.length < 2) return records
 
-  // فحص كل الأعمدة بدلاً من القفز بخطوات ثابتة
-  const dates: { col: number; date: Date }[] = []
-  for (let col = DATE_START_COL; col < (rows[0] as unknown[]).length; col++) {
-    const d = parseDateStr(rows[0][col])
-    if (d) dates.push({ col, date: d })
-  }
+  // اكتشاف صف التواريخ ديناميكياً (لا نفترض الصف 0)
+  const { headerRow, dates } = detectDateRow(rows, DATE_START_COL)
+  if (dates.length === 0) return records
 
-  for (let row = 2; row < rows.length; row++) {
+  // البيانات تبدأ من الصف الذي يلي صف التواريخ
+  for (let row = headerRow + 1; row < rows.length; row++) {
+    if (!rows[row]) continue
     const productName = String(rows[row][0] ?? '').trim()
-    if (!productName) continue
-    if (/^\d{1,4}[\/-]\d{1,2}([\/-]\d{1,4})?$/.test(productName)) continue
+    if (isSkippableRow(productName)) continue
 
     for (const { col, date } of dates) {
       const cartons = parseNum(rows[row][col])

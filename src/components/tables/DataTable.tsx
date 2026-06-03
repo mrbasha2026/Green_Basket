@@ -18,14 +18,18 @@ interface DataTableProps<T> {
   onExportExcel?: () => Promise<void>
   className?: string
   rowClassName?: (row: T) => string
+  showSearch?: boolean       // افتراضي true
+  showPagination?: boolean   // افتراضي true — يُخفى تلقائياً عند قِلّة البيانات
+  defaultPageSize?: number
 }
 
 export function DataTable<T>({
   data, columns, searchPlaceholder = 'بحث...', onExportExcel, className, rowClassName,
+  showSearch = true, showPagination = true, defaultPageSize = 20,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(defaultPageSize)
 
   const table = useReactTable({
     data,
@@ -37,7 +41,7 @@ export function DataTable<T>({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize } },
+    initialState: { pagination: { pageSize: defaultPageSize } },
   })
 
   function handlePageSizeChange(val: string) {
@@ -52,23 +56,29 @@ export function DataTable<T>({
   const from = pageIndex * pageSize + 1
   const to = Math.min(from + pageSize - 1, total)
 
+  const needsPagination = showPagination && total > pageSize
+
   return (
     <div className={cn('space-y-3', className)}>
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Input
-          placeholder={searchPlaceholder}
-          value={globalFilter}
-          onChange={(e) => setGlobalFilter(e.target.value)}
-          className="max-w-xs"
-        />
-        {onExportExcel && (
-          <Button variant="outline" size="sm" onClick={onExportExcel} className="gap-2 shrink-0">
-            <Download className="w-4 h-4" />
-            Excel
-          </Button>
-        )}
-      </div>
+      {/* Toolbar — يظهر فقط إذا كان البحث مطلوباً أو يوجد تصدير */}
+      {(showSearch || onExportExcel) && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {showSearch && (
+            <Input
+              placeholder={searchPlaceholder}
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="max-w-xs h-8 text-sm"
+            />
+          )}
+          {onExportExcel && (
+            <Button variant="outline" size="sm" onClick={onExportExcel} className="gap-2 shrink-0">
+              <Download className="w-4 h-4" />
+              Excel
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden shadow-sm">
@@ -137,8 +147,8 @@ export function DataTable<T>({
         </div>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground flex-wrap gap-2">
+      {/* Pagination — يظهر فقط عند الحاجة */}
+      {needsPagination && <div className="flex items-center justify-between text-sm text-muted-foreground flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span>عرض</span>
           <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
@@ -180,7 +190,12 @@ export function DataTable<T>({
             »
           </Button>
         </div>
-      </div>
+      </div>}
+
+      {/* عداد بسيط بدون pagination عند قِلّة البيانات */}
+      {!needsPagination && total > 0 && (
+        <p className="text-xs text-muted-foreground text-left">{total} سجل</p>
+      )}
     </div>
   )
 }

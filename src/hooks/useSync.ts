@@ -40,54 +40,59 @@ export function useSyncPendingReview() {
 export function useApprovePendingReview() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ review, existingCustomerId }: { review: SyncPendingReview; existingCustomerId?: string }) => {
+    mutationFn: async ({
+      review,
+      existingCustomerId,
+      existingProductId,
+    }: {
+      review: SyncPendingReview
+      existingCustomerId?: string
+      existingProductId?: string
+    }) => {
       if (review.type === 'customer') {
         let customerId: string
-
         if (existingCustomerId) {
-          // ربط بعميل موجود
           customerId = existingCustomerId
         } else {
           const name = review.suggested_match || review.raw_name
-
           let customerType: Customer['type'] = 'مطعم'
           if (name.includes('مستشفى'))     customerType = 'مستشفى'
           else if (name.includes('فندق'))  customerType = 'فندق'
           else if (name.includes('تجزئة')) customerType = 'تجزئة'
-
-          const { data: existing } = await supabase
-            .from('customers')
-            .select('id')
-            .eq('name_ar', name)
-            .maybeSingle()
-
+          const { data: existing } = await supabase.from('customers').select('id').eq('name_ar', name).maybeSingle()
           if (existing) {
             customerId = existing.id
           } else {
             const { data: created, error: cErr } = await supabase
-              .from('customers')
-              .insert({ name_ar: name, type: customerType, is_active: true })
-              .select('id')
-              .single()
+              .from('customers').insert({ name_ar: name, type: customerType, is_active: true }).select('id').single()
             if (cErr) throw cErr
             customerId = created.id
           }
         }
-
-        await supabase
-          .from('customer_sheet_mapping')
+        await supabase.from('customer_sheet_mapping')
           .upsert({ sheet_name: review.raw_name, customer_id: customerId }, { onConflict: 'sheet_name' })
+
+      } else if (review.type === 'product') {
+        if (!existingProductId) throw new Error('يجب اختيار صنف من القائمة')
+        // إنشاء alias يربط اسم الـ Sheet بالصنف في النظام
+        const { error: aErr } = await supabase.from('product_aliases')
+          .upsert({ alias: review.raw_name, product_id: existingProductId }, { onConflict: 'alias' })
+        if (aErr) throw aErr
+        // أيضاً أضف النسخة بالحروف الكبيرة كـ alias مرجعي
+        const upper = review.raw_name.toUpperCase().trim()
+        if (upper !== review.raw_name) {
+          await supabase.from('product_aliases')
+            .upsert({ alias: upper, product_id: existingProductId }, { onConflict: 'alias' })
+        }
       }
 
-      const { error } = await supabase
-        .from('sync_pending_review')
-        .update({ status: 'approved' })
-        .eq('id', review.id)
+      const { error } = await supabase.from('sync_pending_review').update({ status: 'approved' }).eq('id', review.id)
       if (error) throw error
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sync_pending_review'] })
       qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['products'] })
     },
   })
 }

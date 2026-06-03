@@ -10,11 +10,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { useSyncLogs, useSyncPendingReview, useTriggerSync, useDeleteSheetDataByMonth, useApprovePendingReview, useRejectPendingReview } from '@/hooks/useSync'
 import { useCustomers } from '@/hooks/useCustomers'
+import { useProducts, useUpsertProduct } from '@/hooks/useProducts'
 import { Combobox } from '@/components/ui/combobox'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/utils'
-import type { SyncLog } from '@/types'
-import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2, ShoppingCart, TrendingUp, Package } from 'lucide-react'
+import type { SyncLog, SyncPendingReview } from '@/types'
+import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2, ShoppingCart, TrendingUp, Package, Plus } from 'lucide-react'
 import { monthName, todayISO } from '@/lib/utils'
 
 const QUICK_ACTIONS = [
@@ -45,13 +49,33 @@ export default function Sync() {
   const { data: logs, isLoading: logsLoading } = useSyncLogs()
   const { data: pending } = useSyncPendingReview()
   const { data: customers } = useCustomers()
+  const { data: products } = useProducts()
   const { mutateAsync: triggerSync, isPending: syncing } = useTriggerSync()
   const { mutateAsync: deleteSheetData, isPending: isDeleting } = useDeleteSheetDataByMonth()
   const { mutateAsync: approve } = useApprovePendingReview()
   const { mutateAsync: reject } = useRejectPendingReview()
   const [forcingSyncKey, setForcingSyncKey] = useState<string|null>(null)
-  // اختيار عميل موجود لكل سطر معلق: key = review.id, value = customer_id
   const [selectedCustomers, setSelectedCustomers] = useState<Record<string, string>>({})
+  const [selectedProducts, setSelectedProducts] = useState<Record<string, string>>({})
+  const [newProductDialog, setNewProductDialog] = useState<{ review: SyncPendingReview; nameAr: string; category: string } | null>(null)
+  const { mutateAsync: upsertProduct, isPending: isCreatingProduct } = useUpsertProduct()
+
+  async function handleCreateAndLink() {
+    if (!newProductDialog) return
+    try {
+      const created = await upsertProduct({
+        name_ar: newProductDialog.nameAr.trim(),
+        name_en: newProductDialog.review.raw_name,
+        category: newProductDialog.category as 'خضار' | 'فاكهة' | 'أعشاب',
+        is_active: true,
+      })
+      if (created?.id) {
+        await approve({ review: newProductDialog.review, existingProductId: created.id })
+        toast.success(`تم إنشاء "${newProductDialog.nameAr}" وربطه`)
+      }
+      setNewProductDialog(null)
+    } catch { toast.error('حدث خطأ أثناء الإنشاء') }
+  }
 
   // Per-month sheets config
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>({})
@@ -107,45 +131,118 @@ export default function Sync() {
     { accessorKey: 'new_products_found', header: 'أصناف جديدة' },
   ]
 
-  // ── تجميع سجلات الـ Sheet في فواتير ─────────────────────────────────────────
-  async function groupSheetDataIntoInvoices(monthKey: string) {
-    const from = `${monthKey}-01`
-    const d = new Date(monthKey + '-01T12:00:00'); d.setMonth(d.getMonth() + 1); d.setDate(0)
-    const to = d.toISOString().split('T')[0]
+  // ── دالة التجميع الأساسية (مع دعم تحديد نطاق زمني أو تجميع الكل) ────────────
+  async function runGrouping(from?: string, to?: string) {
+    // ─ مشتريات ─
+    let pQuery = supabase.from('purchases')
+      .select('id, date').eq('source', 'google_sheet')
+      .is('invoice_number', null).limit(50000)
+    if (from) pQuery = pQuery.gte('date', from)
+    if (to)   pQuery = pQuery.lte('date', to)
+    const { data: pRows } = await pQuery
 
-    // مشتريات: تجميع حسب اليوم → فاتورة واحدة لكل يوم
-    const { data: pRows } = await supabase.from('purchases')
-      .select('id, date, invoice_number').eq('source', 'google_sheet')
-      .is('invoice_number', null).gte('date', from).lte('date', to)
     if (pRows && pRows.length > 0) {
       const byDate = new Map<string, string[]>()
       pRows.forEach(r => { const ids = byDate.get(r.date) ?? []; ids.push(r.id); byDate.set(r.date, ids) })
-      // استعلام عداد واحد مرة واحدة ثم نزيده في الذاكرة
-      const { data: lastP } = await supabase.from('purchases').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'PIG-%').order('created_at', { ascending: false }).limit(1)
+
+      const { data: lastP } = await supabase.from('purchases')
+        .select('invoice_number').not('invoice_number', 'is', null)
+        .like('invoice_number', 'PIG-%').order('created_at', { ascending: false }).limit(1)
       let pCounter = parseInt((lastP?.[0]?.invoice_number ?? 'PIG-00000').replace('PIG-', '')) + 1
+
       for (const [date, ids] of byDate) {
-        const { data: existing } = await supabase.from('purchases').select('invoice_number').eq('source', 'google_sheet').eq('date', date).not('invoice_number', 'is', null).limit(1)
+        // هل يوجد فاتورة موجودة لهذا اليوم؟
+        const { data: existing } = await supabase.from('purchases')
+          .select('invoice_number').eq('source', 'google_sheet').eq('date', date)
+          .not('invoice_number', 'is', null).limit(1)
         const inv = existing?.[0]?.invoice_number ?? `PIG-${String(pCounter++).padStart(5, '0')}`
         await supabase.from('purchases').update({ invoice_number: inv }).in('id', ids)
       }
     }
 
-    // مبيعات: تجميع حسب اليوم + العميل → فاتورة واحدة لكل (يوم، عميل)
-    const { data: sRows } = await supabase.from('sales')
-      .select('id, date, customer_id, invoice_number').eq('source', 'google_sheet')
-      .is('invoice_number', null).gte('date', from).lte('date', to)
+    // ─ مبيعات ─
+    let sQuery = supabase.from('sales')
+      .select('id, date, customer_id').eq('source', 'google_sheet')
+      .is('invoice_number', null).limit(50000)
+    if (from) sQuery = sQuery.gte('date', from)
+    if (to)   sQuery = sQuery.lte('date', to)
+    const { data: sRows } = await sQuery
+
     if (sRows && sRows.length > 0) {
       const byDayCustomer = new Map<string, string[]>()
-      sRows.forEach(r => { const k = `${r.date}__${r.customer_id}`; const ids = byDayCustomer.get(k) ?? []; ids.push(r.id); byDayCustomer.set(k, ids) })
-      // استعلام عداد واحد مرة واحدة ثم نزيده في الذاكرة
-      const { data: lastS } = await supabase.from('sales').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'SIG-%').order('created_at', { ascending: false }).limit(1)
+      sRows.forEach(r => {
+        const k = `${r.date}__${r.customer_id}`
+        const ids = byDayCustomer.get(k) ?? []; ids.push(r.id); byDayCustomer.set(k, ids)
+      })
+
+      const { data: lastS } = await supabase.from('sales')
+        .select('invoice_number').not('invoice_number', 'is', null)
+        .like('invoice_number', 'SIG-%').order('created_at', { ascending: false }).limit(1)
       let sCounter = parseInt((lastS?.[0]?.invoice_number ?? 'SIG-00000').replace('SIG-', '')) + 1
+
       for (const [key, ids] of byDayCustomer) {
         const [date, customerId] = key.split('__')
-        const { data: existing } = await supabase.from('sales').select('invoice_number').eq('source', 'google_sheet').eq('date', date).eq('customer_id', customerId).not('invoice_number', 'is', null).limit(1)
+        // هل يوجد فاتورة لهذا اليوم + العميل؟
+        const { data: existing } = await supabase.from('sales')
+          .select('invoice_number').eq('source', 'google_sheet')
+          .eq('date', date).eq('customer_id', customerId)
+          .not('invoice_number', 'is', null).limit(1)
         const inv = existing?.[0]?.invoice_number ?? `SIG-${String(sCounter++).padStart(5, '0')}`
         await supabase.from('sales').update({ invoice_number: inv }).in('id', ids)
       }
+    }
+
+    return { purchases: pRows?.length ?? 0, sales: sRows?.length ?? 0 }
+  }
+
+  // تجميع شهر محدد (بعد المزامنة المباشرة)
+  async function groupSheetDataIntoInvoices(monthKey: string) {
+    const from = `${monthKey}-01`
+    const d = new Date(monthKey + '-01T12:00:00'); d.setMonth(d.getMonth() + 1); d.setDate(0)
+    const to = d.toISOString().split('T')[0]
+    await runGrouping(from, to)
+  }
+
+  // تجميع كل البيانات غير المرقّمة (بدون قيد الشهر)
+  const [isGroupingAll, setIsGroupingAll] = useState(false)
+  async function handleGroupAll() {
+    setIsGroupingAll(true)
+    try {
+      toast.loading('جاري تجميع كل الفواتير...', { id: 'group-all' })
+      const result = await runGrouping()
+      toast.success(
+        `تم تجميع: ${result.purchases} مشتريات، ${result.sales} مبيعات`,
+        { id: 'group-all' }
+      )
+    } catch (err) {
+      toast.error(`فشل التجميع: ${(err as Error).message}`, { id: 'group-all' })
+    } finally {
+      setIsGroupingAll(false)
+    }
+  }
+
+  // يعرض نتيجة المزامنة: عدد المستورد + الورقات/المنتجات غير المطابقة
+  function showSyncResult(result: { imported?: number; skippedSheets?: string[]; unmatchedProducts?: string[] }, toastId: string) {
+    const imported = result.imported ?? 0
+    const skipped = result.skippedSheets ?? []
+    const unmatched = result.unmatchedProducts ?? []
+
+    const lines: string[] = [`تمت المزامنة — ${imported} سجل`]
+    if (skipped.length > 0) {
+      lines.push(`ورقات غير مطابقة (${skipped.length}): ${skipped.join('، ')}`)
+    }
+    if (unmatched.length > 0) {
+      const shown = unmatched.slice(0, 10).join('، ')
+      const more = unmatched.length > 10 ? ` …+${unmatched.length - 10}` : ''
+      lines.push(`أصناف غير مطابقة (${unmatched.length}): ${shown}${more}`)
+    }
+
+    const hasWarnings = skipped.length > 0 || unmatched.length > 0
+    const description = lines.slice(1).join('\n')
+    if (hasWarnings) {
+      toast.warning(lines[0], { id: toastId, description, duration: 12000 })
+    } else {
+      toast.success(lines[0], { id: toastId })
     }
   }
 
@@ -156,7 +253,7 @@ export default function Sync() {
       const result = await triggerSync({ spreadsheetId: sheetId })
       toast.loading('جاري تجميع الفواتير...', { id: 'sync-group' })
       await groupSheetDataIntoInvoices(key)
-      toast.success(`تمت المزامنة — ${result.imported ?? 0} سجل`, { id: 'sync-group' })
+      showSyncResult(result, 'sync-group')
     } catch (err) {
       toast.error(`فشلت المزامنة: ${(err as Error).message}`)
     }
@@ -173,7 +270,7 @@ export default function Sync() {
       const result = await triggerSync({ spreadsheetId: sheetId })
       toast.loading('جاري تجميع الفواتير...', { id: 'force-sync' })
       await groupSheetDataIntoInvoices(key)
-      toast.success(`تمت المزامنة الكاملة — ${result.imported ?? 0} سجل`, { id: 'force-sync' })
+      showSyncResult(result, 'force-sync')
     } catch (err) {
       toast.error(`فشلت المزامنة: ${(err as Error).message}`, { id: 'force-sync' })
     } finally {
@@ -191,6 +288,29 @@ export default function Sync() {
           </Link>
         ))}
       </div>
+
+      {/* Group all ungrouped invoices */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold text-foreground">تجميع كل الفواتير غير المرقّمة</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                يعالج جميع بيانات Sheets التي استُوردت بدون رقم فاتورة — مشتريات حسب اليوم، مبيعات حسب اليوم+العميل
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="gap-1.5 shrink-0"
+              disabled={isGroupingAll || syncing || isDeleting}
+              onClick={handleGroupAll}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isGroupingAll ? 'animate-spin' : ''}`} />
+              {isGroupingAll ? 'جاري التجميع...' : 'تجميع كل الفواتير'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Status card */}
       <Card>
@@ -370,32 +490,111 @@ export default function Sync() {
       {pendingProducts.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-warning">⚠️ أصناف جديدة بحاجة لمراجعة</CardTitle>
+            <CardTitle className="text-base text-warning flex items-center gap-2">
+              <XCircle className="w-4 h-4" />
+              أصناف من الـ Sheet بحاجة لربط ({pendingProducts.length})
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              اختر من القائمة الصنف المقابل في النظام، ثم اضغط "ربط" — سيُضاف اسم الـ Sheet كاسم بديل تلقائياً
+            </p>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {pendingProducts.map(p => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <div>
-                    <p className="font-medium">{p.raw_name}</p>
-                    {p.suggested_match && (
-                      <p className="text-xs text-muted-foreground">اقتراح: {p.suggested_match}</p>
-                    )}
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {pendingProducts.map(p => {
+                const productOptions = (products ?? []).map(pr => ({ value: pr.id, label: pr.name_ar, sub: pr.name_en ?? '' }))
+                const selected = selectedProducts[p.id] ?? ''
+                return (
+                  <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-muted/40 border border-border">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm font-mono">{p.raw_name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">اسم الصنف في الـ Sheet</p>
+                    </div>
+                    <div className="w-56 shrink-0">
+                      <Combobox
+                        options={productOptions}
+                        value={selected}
+                        onValueChange={val => setSelectedProducts(prev => ({ ...prev, [p.id]: val }))}
+                        placeholder="اختر الصنف المقابل..."
+                        searchPlaceholder="ابحث عن صنف..."
+                      />
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        disabled={!selected}
+                        onClick={() => approve({ review: p, existingProductId: selected })}
+                        className="gap-1 h-8 text-xs"
+                      >
+                        <CheckCircle className="w-3 h-3" /> ربط
+                      </Button>
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => setNewProductDialog({ review: p, nameAr: p.raw_name, category: 'خضار' })}
+                        className="gap-1 h-8 text-xs text-primary border-primary/30 hover:bg-primary/10"
+                      >
+                        <Plus className="w-3 h-3" /> صنف جديد
+                      </Button>
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => reject(p.id)}
+                        className="gap-1 h-8 text-xs text-danger border-danger/30 hover:bg-danger/10"
+                      >
+                        <XCircle className="w-3 h-3" /> تجاهل
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => approve({ review: p })} className="gap-1">
-                      <CheckCircle className="w-3 h-3" /> اعتماد
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => reject(p.id)} className="gap-1 text-danger border-danger hover:bg-danger/10">
-                      <XCircle className="w-3 h-3" /> رفض
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Dialog إنشاء صنف جديد */}
+      <Dialog open={!!newProductDialog} onOpenChange={o => !o && setNewProductDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>إضافة صنف جديد وربطه</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="p-2 bg-muted/40 rounded-lg text-xs text-muted-foreground">
+              اسم الـ Sheet: <span className="font-mono font-medium text-foreground">{newProductDialog?.review.raw_name}</span>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">الاسم بالعربية <span className="text-danger">*</span></Label>
+              <Input
+                value={newProductDialog?.nameAr ?? ''}
+                onChange={e => setNewProductDialog(p => p ? { ...p, nameAr: e.target.value } : p)}
+                placeholder="اسم الصنف بالعربية"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">الفئة</Label>
+              <Select
+                value={newProductDialog?.category ?? 'خضار'}
+                onValueChange={v => v && setNewProductDialog(p => p ? { ...p, category: v } : p)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="خضار">خضار</SelectItem>
+                  <SelectItem value="فاكهة">فاكهة</SelectItem>
+                  <SelectItem value="أعشاب">أعشاب</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button
+                onClick={handleCreateAndLink}
+                disabled={isCreatingProduct || !newProductDialog?.nameAr?.trim()}
+                className="flex-1"
+              >
+                {isCreatingProduct ? 'جاري...' : 'إنشاء وربط'}
+              </Button>
+              <Button variant="outline" onClick={() => setNewProductDialog(null)}>إلغاء</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Sync log table */}
       <Card>
@@ -408,7 +607,7 @@ export default function Sync() {
           ) : (logs ?? []).length === 0 ? (
             <p className="text-center text-muted-foreground py-10 text-sm">لا توجد مزامنات سابقة — اضغط "استيراد الآن" لبدء أول مزامنة</p>
           ) : (
-            <DataTable data={logs ?? []} columns={logColumns} searchPlaceholder="بحث..." />
+            <DataTable data={logs ?? []} columns={logColumns} showSearch={false} defaultPageSize={10} />
           )}
         </CardContent>
       </Card>

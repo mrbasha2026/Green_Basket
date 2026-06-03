@@ -21,6 +21,8 @@ import { exportToExcel, parseExcelFile } from '@/lib/excel'
 import type { Purchase, PurchaseFormRow } from '@/types'
 import { cn } from '@/lib/utils'
 import { Plus, Trash2, Printer, Upload, FileDown, RotateCcw, FileText, Eye, Pencil, Truck, List } from 'lucide-react'
+import { DataTable } from '@/components/tables/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
 import { supabase } from '@/lib/supabase'
 
 // ── Invoice group type ────────────────────────────────────────────────────────
@@ -377,65 +379,58 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
         </div>
       </div>
 
-      {/* Table */}
-      {isLoading ? (
-        <div className="space-y-2 p-5">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div>
-      ) : filtered.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center"><List className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد سجلات</p></div>
-        </div>
-      ) : (
-        <div className="overflow-auto flex-1">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/20 sticky top-0">
-                <th className="px-3 py-3 w-10">
-                  <input type="checkbox" className="rounded"
-                    checked={filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))}
-                    onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(p => p.id)) : new Set())}
-                  />
-                </th>
-                {['التاريخ','النوع','الصنف','المورد','الفاتورة','كراتين','التكلفة/كج','الإجمالي (ر.س)',''].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p,i)=>{const isRet=p.transaction_type==='مرتجع_مشتريات';const isSelected=selectedIds.has(p.id);return(
-                <tr key={p.id} className={cn('border-b border-border/40 hover:bg-muted/20',i%2===1&&'bg-muted/10',isRet&&'bg-warning/5',isSelected&&'bg-primary/5')}>
-                  <td className="px-3 py-2">
-                    <input type="checkbox" className="rounded" checked={isSelected}
-                      onChange={e => setSelectedIds(prev => { const n=new Set(prev); e.target.checked?n.add(p.id):n.delete(p.id); return n })}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(p.date)}</td>
-                  <td className="px-3 py-2"><span className={cn('text-xs px-1.5 py-0.5 rounded font-medium',isRet?'bg-warning/15 text-warning':'bg-primary/15 text-primary')}>{isRet?'مرتجع':'شراء'}</span></td>
-                  <td className="px-3 py-2 font-medium text-xs">{products.find(pr=>pr.id===p.product_id)?.name_ar??'—'}</td>
-                  <td className="px-3 py-2 text-xs">{p.supplier?.name_ar??'—'}</td>
-                  <td className="px-3 py-2">{p.invoice_number?<span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{p.invoice_number}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
-                  <td className="px-3 py-2 text-xs">{formatNumber(p.cartons_qty)}</td>
-                  <td className="px-3 py-2 text-xs text-primary">{formatNumber(p.cost_per_kg)}</td>
-                  <td className="px-3 py-2 font-semibold text-xs">{formatNumber(p.total_cost)}</td>
-                  <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10" onClick={()=>setDeleteId(p.id)}><Trash2 className="w-3 h-3"/></Button></td>
-                </tr>
-              )})}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Delete dialog */}
-      <Dialog open={!!deleteId} onOpenChange={o=>!o&&setDeleteId(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>حذف السجل</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">هل تريد حذف هذا السجل؟ لا يمكن التراجع.</p>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" size="sm" onClick={()=>setDeleteId(null)}>إلغاء</Button>
-            <Button variant="destructive" size="sm" disabled={isDeleting}
-              onClick={async()=>{if(!deleteId)return;await deletePurchase(deleteId);toast.success('تم الحذف');setDeleteId(null)}}>
-              {isDeleting?'جاري الحذف...':'حذف'}
+      {/* Columns */}
+      {(() => {
+        const columns: ColumnDef<Purchase>[] = [
+          {
+            id: 'select',
+            header: () => (
+              <input type="checkbox" className="rounded"
+                checked={filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))}
+                onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(p => p.id)) : new Set())}
+              />
+            ),
+            cell: ({ row }) => (
+              <input type="checkbox" className="rounded" checked={selectedIds.has(row.original.id)}
+                onChange={e => setSelectedIds(prev => { const n=new Set(prev); e.target.checked?n.add(row.original.id):n.delete(row.original.id); return n })}
+              />
+            ),
+            enableSorting: false,
+          },
+          { accessorKey: 'date', header: 'التاريخ', cell: ({ getValue }) => <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(getValue() as string)}</span> },
+          { accessorKey: 'transaction_type', header: 'النوع', cell: ({ getValue }) => {
+            const isRet = getValue() === 'مرتجع_مشتريات'
+            return <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', isRet?'bg-warning/15 text-warning':'bg-primary/15 text-primary')}>{isRet?'مرتجع':'شراء'}</span>
+          }},
+          { accessorFn: r => products.find(pr=>pr.id===r.product_id)?.name_ar ?? '—', id: 'product', header: 'الصنف', cell: ({ getValue }) => <span className="font-medium text-xs">{getValue() as string}</span> },
+          { accessorFn: r => r.supplier?.name_ar ?? '—', id: 'supplier', header: 'المورد', cell: ({ getValue }) => <span className="text-xs">{getValue() as string}</span> },
+          { accessorKey: 'invoice_number', header: 'الفاتورة', cell: ({ getValue }) => {
+            const v = getValue() as string|null
+            return v ? <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{v}</span> : <span className="text-muted-foreground text-xs">—</span>
+          }},
+          { accessorKey: 'cartons_qty', header: 'كراتين', cell: ({ getValue }) => <span className="text-xs">{formatNumber(getValue() as number)}</span> },
+          { accessorKey: 'cost_per_kg', header: 'التكلفة/كج', cell: ({ getValue }) => <span className="text-xs text-primary">{formatNumber(getValue() as number)}</span> },
+          { accessorKey: 'total_cost', header: 'الإجمالي', cell: ({ getValue }) => <span className="font-semibold text-xs">{formatNumber(getValue() as number)}</span> },
+          { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => (
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10"
+              onClick={async () => { await deletePurchase(row.original.id); toast.success('تم الحذف') }}>
+              <Trash2 className="w-3 h-3"/>
             </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+          )},
+        ]
+
+        return isLoading ? (
+          <div className="space-y-2 p-5">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div>
+        ) : (
+          <DataTable
+            data={filtered}
+            columns={columns}
+            showSearch={false}
+            defaultPageSize={50}
+            onExportExcel={handleExport}
+          />
+        )
+      })()}
     </div>
   )
 }

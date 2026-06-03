@@ -93,6 +93,32 @@ async function getSheets(spreadsheetId: string): Promise<{ name: string; data: u
   }
 }
 
+// ─── مطابقة أسماء العملاء (تطبيع عربي + مرونة) ───────────────────────────────
+
+function normalizeArabic(s: string): string {
+  return s.trim()
+    .replace(/ى/g, 'ي')
+    .replace(/أ|إ|آ/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
+}
+
+function findCustomerId(sheetName: string, sheetMap: Map<string, string>): string | undefined {
+  // مستوى 1: تطابق تام
+  const trimmed = sheetName.trim()
+  if (sheetMap.has(trimmed)) return sheetMap.get(trimmed)
+  // مستوى 2: تجاهل المسافات الزائدة
+  for (const [k, v] of sheetMap) {
+    if (k.trim() === trimmed) return v
+  }
+  // مستوى 3: تطبيع الأحرف العربية
+  const normName = normalizeArabic(trimmed)
+  for (const [k, v] of sheetMap) {
+    if (normalizeArabic(k) === normName) return v
+  }
+  return undefined
+}
+
 // ─── Cache: تحميل كل البيانات مرة واحدة ──────────────────────────────────────
 
 interface SyncCache {
@@ -103,10 +129,11 @@ interface SyncCache {
 }
 
 async function buildCache(): Promise<SyncCache> {
+  // حد صريح عالٍ لتجاوز حد Supabase الافتراضي (1000 صف) الذي يفقد ربوط المنتجات
   const [aliasRes, productRes, sheetRes] = await Promise.all([
-    supabaseAdmin.from('product_aliases').select('alias, product_id'),
-    supabaseAdmin.from('products').select('id, name_en, name_ar'),
-    supabaseAdmin.from('customer_sheet_mapping').select('sheet_name, customer_id'),
+    supabaseAdmin.from('product_aliases').select('alias, product_id').limit(100000),
+    supabaseAdmin.from('products').select('id, name_en, name_ar').limit(100000),
+    supabaseAdmin.from('customer_sheet_mapping').select('sheet_name, customer_id').limit(100000),
   ])
 
   const aliasMap = new Map<string, string>()
@@ -132,74 +159,141 @@ async function buildCache(): Promise<SyncCache> {
 async function importSales(
   records: SaleRecord[],
   customerId: string,
-  cache: SyncCache
+  cache: SyncCache,
+  unmatched: Set<string>
 ): Promise<number> {
-  const rows = []
+  // دمج السجلات المكررة (نفس product_id + date) في صف واحد:
+  // اجمع qty، وخذ متوسط الأسعار مرجّحاً بالكمية لتجنّب فقدان البيانات عبر قيد التفرّد
+  interface Agg {
+    product_id: string
+    date: string
+    qty: number
+    buyWeighted: number
+    sellWeighted: number
+  }
+  const merged = new Map<string, Agg>()
   for (const r of records) {
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
-    if (!productId) continue
-    rows.push({
-      product_id: productId,
-      customer_id: customerId,
-      date: r.date.toISOString().split('T')[0],
-      qty_kg: r.qty,
-      purchase_price_per_kg: r.buyPrice,
-      price_per_kg: r.sellPrice,
-      source: 'google_sheet',
-    })
+    if (!productId) { unmatched.add(r.productName.trim()); continue }
+    const date = r.date.toISOString().split('T')[0]
+    const key = `${productId}__${date}`
+    const a = merged.get(key) ?? { product_id: productId, date, qty: 0, buyWeighted: 0, sellWeighted: 0 }
+    a.qty += r.qty
+    a.buyWeighted += r.buyPrice * r.qty
+    a.sellWeighted += r.sellPrice * r.qty
+    merged.set(key, a)
   }
+
+  const rows = [...merged.values()].map(a => ({
+    product_id: a.product_id,
+    customer_id: customerId,
+    date: a.date,
+    qty_kg: a.qty,
+    purchase_price_per_kg: a.qty > 0 ? a.buyWeighted / a.qty : 0,
+    price_per_kg: a.qty > 0 ? a.sellWeighted / a.qty : 0,
+    source: 'google_sheet',
+  }))
+
   if (rows.length > 0) {
-    // Insert without deduplication — duplicates from same sheet run are prevented by force-sync delete
-    await supabaseAdmin.from('sales').insert(rows)
+    const { error } = await supabaseAdmin
+      .from('sales')
+      .upsert(rows, { onConflict: 'product_id,customer_id,date,source' })
+    if (error) throw new Error(`فشل إدراج المبيعات: ${error.message}`)
   }
   return rows.length
 }
 
 async function importPurchases(
   records: PurchaseRecord[],
-  cache: SyncCache
+  cache: SyncCache,
+  unmatched: Set<string>
 ): Promise<number> {
-  const rows = []
+  // دمج السجلات المكررة (نفس product_id + date) في صف واحد:
+  // اجمع cartons وwaste، وخذ السعر/الوزن لكل كرتونة مرجّحاً بعدد الكراتين
+  interface Agg {
+    product_id: string
+    date: string
+    cartons: number
+    waste: number
+    priceWeighted: number
+    weightWeighted: number
+  }
+  const merged = new Map<string, Agg>()
   for (const r of records) {
     if (r.cartons <= 0) continue  // المشتريات فقط
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
-    if (!productId) continue
-    rows.push({
-      product_id: productId,
-      date: r.date.toISOString().split('T')[0],
-      cartons_qty: r.cartons,
-      price_per_carton: r.price,
-      weight_per_carton: r.weight,
-      waste_kg: 0,
-      cost_per_kg: r.weight > 0 ? r.price / r.weight : 0,
-      source: 'google_sheet',
-    })
+    if (!productId) { unmatched.add(r.productName.trim()); continue }
+    const date = r.date.toISOString().split('T')[0]
+    const key = `${productId}__${date}`
+    const a = merged.get(key) ?? { product_id: productId, date, cartons: 0, waste: 0, priceWeighted: 0, weightWeighted: 0 }
+    a.cartons += r.cartons
+    a.waste += r.waste
+    a.priceWeighted += r.price * r.cartons
+    a.weightWeighted += r.weight * r.cartons
+    merged.set(key, a)
   }
+
+  const rows = [...merged.values()].map(a => {
+    const pricePerCarton = a.cartons > 0 ? a.priceWeighted / a.cartons : 0
+    const weightPerCarton = a.cartons > 0 ? a.weightWeighted / a.cartons : 0
+    return {
+      product_id: a.product_id,
+      date: a.date,
+      cartons_qty: a.cartons,
+      price_per_carton: pricePerCarton,
+      weight_per_carton: weightPerCarton,
+      waste_kg: a.waste,
+      cost_per_kg: weightPerCarton > 0 ? pricePerCarton / weightPerCarton : 0,
+      source: 'google_sheet',
+    }
+  })
+
   if (rows.length > 0) {
-    await supabaseAdmin.from('purchases').insert(rows)
+    const { error } = await supabaseAdmin
+      .from('purchases')
+      .upsert(rows, { onConflict: 'product_id,date' })
+    if (error) throw new Error(`فشل إدراج المشتريات: ${error.message}`)
   }
   return rows.length
 }
 
 async function importWaste(
   records: PurchaseRecord[],
-  cache: SyncCache
+  cache: SyncCache,
+  unmatched: Set<string>
 ): Promise<number> {
-  const rows = []
+  // دمج الهدر المكرر (نفس product_id + date) في صف واحد
+  const merged = new Map<string, { product_id: string; date: string; waste: number }>()
   for (const r of records) {
     if (r.waste <= 0) continue  // الهدر فقط
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
-    if (!productId) continue
-    rows.push({
-      product_id: productId,
-      date: r.date.toISOString().split('T')[0],
-      waste_kg: r.waste,
-      reason: null,
-      source: 'google_sheet',
-    })
+    if (!productId) { unmatched.add(r.productName.trim()); continue }
+    const date = r.date.toISOString().split('T')[0]
+    const key = `${productId}__${date}`
+    const a = merged.get(key) ?? { product_id: productId, date, waste: 0 }
+    a.waste += r.waste
+    merged.set(key, a)
   }
+
+  const rows = [...merged.values()].map(a => ({
+    product_id: a.product_id,
+    date: a.date,
+    waste_kg: a.waste,
+    reason: null,
+    source: 'google_sheet',
+  }))
+
   if (rows.length > 0) {
-    await supabaseAdmin.from('waste_log').insert(rows)
+    // waste_log لا يملك unique constraint — نحذف القديم ثم ندرج
+    const productIds = [...new Set(rows.map(r => r.product_id))]
+    const dates = [...new Set(rows.map(r => r.date))]
+    await supabaseAdmin.from('waste_log')
+      .delete()
+      .eq('source', 'google_sheet')
+      .in('product_id', productIds)
+      .in('date', dates)
+    const { error } = await supabaseAdmin.from('waste_log').insert(rows)
+    if (error) throw new Error(`فشل إدراج الهدر: ${error.message}`)
   }
   return rows.length
 }
@@ -219,6 +313,7 @@ export async function syncSheets(spreadsheetId: string) {
   let totalImported = 0
   let newCustomers = 0
   const pendingCustomers: string[] = []
+  const allUnmatchedProducts = new Set<string>()
 
   for (const sheet of allSheets) {
     const name = sheet.name.trim()
@@ -235,13 +330,13 @@ export async function syncSheets(spreadsheetId: string) {
         if (records.length > 0) console.log(`[SYNC]   عينة:`, records[0])
         const notFound = records.filter(r => !cache.aliasMap.get(r.productName.toUpperCase().trim()))
         if (notFound.length > 0) console.log(`[SYNC]   ⚠️ غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
-        const purchaseCount = await importPurchases(records, cache)
-        const wasteCount = await importWaste(records, cache)
+        const purchaseCount = await importPurchases(records, cache, allUnmatchedProducts)
+        const wasteCount = await importWaste(records, cache, allUnmatchedProducts)
         console.log(`[SYNC]   ✅ مشتريات: ${purchaseCount} | هدر: ${wasteCount}`)
         totalImported += purchaseCount
       }
     } else {
-      const customerId = cache.sheetMap.get(name)
+      const customerId = findCustomerId(name, cache.sheetMap)
       if (customerId) {
         console.log(`\n[SYNC] 🛒 ورقة عميل: "${name}"`)
         console.log(`[SYNC]   صف 0:`, sheet.data[0]?.slice(0, 10))
@@ -252,7 +347,7 @@ export async function syncSheets(spreadsheetId: string) {
         if (records.length > 0) console.log(`[SYNC]   عينة:`, records[0])
         const notFound = records.filter(r => !cache.aliasMap.get(r.productName.toUpperCase().trim()))
         if (notFound.length > 0) console.log(`[SYNC]   ⚠️ غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
-        const count = await importSales(records, customerId, cache)
+        const count = await importSales(records, customerId, cache, allUnmatchedProducts)
         console.log(`[SYNC]   ✅ مستوردة: ${count}`)
         totalImported += count
       } else {
@@ -262,25 +357,38 @@ export async function syncSheets(spreadsheetId: string) {
     }
   }
 
+  // ── حفظ العملاء غير المطابقين في pending_review ──────────────────────────
   if (pendingCustomers.length > 0) {
-    const { data: existing } = await supabaseAdmin
-      .from('sync_pending_review')
-      .select('raw_name')
-      .eq('status', 'pending')
-      .eq('type', 'customer')
-
-    const existingNames = new Set((existing ?? []).map(r => r.raw_name))
-    const toInsert = pendingCustomers
-      .filter(n => !existingNames.has(n))
+    const { data: existingC } = await supabaseAdmin
+      .from('sync_pending_review').select('raw_name')
+      .eq('type', 'customer').in('status', ['pending', 'approved'])
+    const existingCNames = new Set((existingC ?? []).map(r => r.raw_name))
+    const toInsertC = pendingCustomers
+      .filter(n => !existingCNames.has(n))
       .map(n => ({ type: 'customer', raw_name: n, status: 'pending' }))
+    if (toInsertC.length > 0) await supabaseAdmin.from('sync_pending_review').insert(toInsertC)
+  }
 
-    if (toInsert.length > 0) {
-      await supabaseAdmin.from('sync_pending_review').insert(toInsert)
-    }
+  // ── حفظ الأصناف غير المطابقة في pending_review ────────────────────────────
+  if (allUnmatchedProducts.size > 0) {
+    const { data: existingP } = await supabaseAdmin
+      .from('sync_pending_review').select('raw_name')
+      .eq('type', 'product').in('status', ['pending', 'approved'])
+    const existingPNames = new Set((existingP ?? []).map(r => r.raw_name))
+    const toInsertP = [...allUnmatchedProducts]
+      .filter(n => !existingPNames.has(n))
+      .map(n => ({ type: 'product', raw_name: n, status: 'pending' }))
+    if (toInsertP.length > 0) await supabaseAdmin.from('sync_pending_review').insert(toInsertP)
+    console.log(`[SYNC] ⚠️ منتجات غير مطابقة (${allUnmatchedProducts.size}):`, [...allUnmatchedProducts])
   }
 
   console.log(`\n[SYNC] ✅ انتهت المزامنة — إجمالي مستورد: ${totalImported}`)
-  return { imported: totalImported, newCustomers, newProducts: 0 }
+  return {
+    imported: totalImported,
+    newCustomers,
+    skippedSheets: pendingCustomers,
+    unmatchedProducts: [...allUnmatchedProducts],
+  }
 }
 
 export default async function handler(req: Request): Promise<Response> {
