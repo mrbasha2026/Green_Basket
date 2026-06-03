@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { google } from 'googleapis'
+import * as XLSX from 'xlsx'
 import { parseCustomerSheet, parsePurchasesSheet, SYSTEM_SHEETS } from '../src/lib/sheetsParser'
 import type { SaleRecord, PurchaseRecord } from '../src/types'
 
@@ -8,35 +9,88 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// ─── Google Sheets ────────────────────────────────────────────────────────────
+// ─── Google Auth ──────────────────────────────────────────────────────────────
 
-async function getSheets(spreadsheetId: string) {
+function buildAuth(scopes: string[]) {
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY!.replace(/\\n/g, '\n')
-  const auth = new google.auth.GoogleAuth({
+  return new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
       private_key: privateKey,
     },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    scopes,
+  })
+}
+
+// ─── قراءة ملف Office (.xlsx) عبر Drive API (raw fetch) ─────────────────────
+
+async function getSheetsFromOfficeFile(fileId: string): Promise<{ name: string; data: unknown[][] }[]> {
+  const auth = buildAuth([
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/spreadsheets.readonly',
+  ])
+
+  // نحصل على token مباشرةً ونستخدم fetch بدلاً من SDK
+  const client = await auth.getClient()
+  const tokenRes = await client.getAccessToken()
+  const token = tokenRes.token
+  if (!token) throw new Error('فشل الحصول على access token')
+
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
   })
 
-  const sheets = google.sheets({ version: 'v4', auth })
-  const meta = await sheets.spreadsheets.get({ spreadsheetId })
-  const sheetNames = meta.data.sheets?.map(s => s.properties?.title ?? '') ?? []
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Drive download ${res.status}: ${body || res.statusText}`)
+  }
 
+  const buffer = await res.arrayBuffer()
+  // cellDates:true → يُرجع Date objects بدلاً من أرقام serial
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
   const results: { name: string; data: unknown[][] }[] = []
-  for (const name of sheetNames) {
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: name,
-        dateTimeRenderOption: 'FORMATTED_STRING',
-      })
-      const rows = res.data.values ?? []
-      if (rows.length > 0) results.push({ name: name.trim(), data: rows as unknown[][] })
-    } catch { /* skip failed sheets */ }
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+    if (rows.length > 0) results.push({ name: sheetName.trim(), data: rows as unknown[][] })
   }
   return results
+}
+
+// ─── Google Sheets ────────────────────────────────────────────────────────────
+
+async function getSheets(spreadsheetId: string): Promise<{ name: string; data: unknown[][] }[]> {
+  const auth = buildAuth(['https://www.googleapis.com/auth/spreadsheets.readonly'])
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId })
+    const sheetNames = meta.data.sheets?.map(s => s.properties?.title ?? '') ?? []
+
+    const results: { name: string; data: unknown[][] }[] = []
+    for (const name of sheetNames) {
+      try {
+        const res = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: name,
+          dateTimeRenderOption: 'FORMATTED_STRING',
+        })
+        const rows = res.data.values ?? []
+        if (rows.length > 0) results.push({ name: name.trim(), data: rows as unknown[][] })
+      } catch { /* skip failed sheets */ }
+    }
+    return results
+  } catch (err: unknown) {
+    // ملف Office → نتراجع لـ Drive API
+    const msg = (err as Error)?.message ?? ''
+    if (msg.includes('Office file') || msg.includes('not supported for this document')) {
+      console.log('[SYNC] Office file detected — falling back to Drive API')
+      return getSheetsFromOfficeFile(spreadsheetId)
+    }
+    throw err
+  }
 }
 
 // ─── Cache: تحميل كل البيانات مرة واحدة ──────────────────────────────────────

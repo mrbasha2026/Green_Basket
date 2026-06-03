@@ -27,16 +27,30 @@ function parseNum(val: unknown): number {
 // يحوّل تاريخ النص إلى Date بتوقيت UTC لتجنب فارق المنطقة الزمنية
 function parseDateStr(val: unknown): Date | null {
   if (!val) return null
-  if (val instanceof Date) return val
+  if (val instanceof Date) {
+    return new Date(Date.UTC(val.getFullYear(), val.getMonth(), val.getDate()))
+  }
   const s = String(val).trim()
-
-  // تنسيق MM/DD/YYYY
-  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (mdy) return new Date(Date.UTC(+mdy[3], +mdy[1] - 1, +mdy[2]))
 
   // تنسيق YYYY-MM-DD
   const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (ymd) return new Date(Date.UTC(+ymd[1], +ymd[2] - 1, +ymd[3]))
+
+  // تنسيق MM/DD/YYYY أو DD/MM/YYYY — نحاول كليهما
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (slash) {
+    const [, a, b, y] = slash
+    // إذا كان الجزء الأول > 12 فهو يوم بالتأكيد (DD/MM/YYYY)
+    if (+a > 12) return new Date(Date.UTC(+y, +b - 1, +a))
+    // وإذا كان الثاني > 12 فهو يوم (MM/DD/YYYY)
+    if (+b > 12) return new Date(Date.UTC(+y, +a - 1, +b))
+    // كلاهما ≤ 12: نفترض DD/MM/YYYY (الأكثر شيوعاً في السعودية)
+    return new Date(Date.UTC(+y, +b - 1, +a))
+  }
+
+  // تنسيق DD-MM-YYYY
+  const dash = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+  if (dash) return new Date(Date.UTC(+dash[3], +dash[2] - 1, +dash[1]))
 
   return null
 }

@@ -2,17 +2,7 @@ import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import { formatNumber } from '@/lib/utils'
-
-const TOOLTIP_STYLE = {
-  direction: 'rtl' as const,
-  fontFamily: 'Noto Sans Arabic, sans-serif',
-  fontSize: 13,
-  borderRadius: 8,
-  border: '1px solid #e2e8f0',
-  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-  padding: '8px 12px',
-}
+import { formatNumber, getChartStyle } from '@/lib/utils'
 
 interface BarChartProps {
   data: Record<string, unknown>[]
@@ -23,6 +13,7 @@ interface BarChartProps {
 }
 
 export function BarChart({ data, bars, xAxisKey, height = 300, layout = 'horizontal' }: BarChartProps) {
+  const cs = getChartStyle()
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ReBarChart
@@ -33,21 +24,21 @@ export function BarChart({ data, bars, xAxisKey, height = 300, layout = 'horizon
           : { top: 10, right: 10, left: 10, bottom: 45 }
         }
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.15)" />
+        <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
         {layout === 'horizontal' ? (
           <>
             <XAxis
               dataKey={xAxisKey}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 11, fill: cs.tickColor }}
               angle={-25}
               textAnchor="end"
               interval={0}
-              axisLine={{ stroke: '#e2e8f0' }}
+              axisLine={{ stroke: cs.gridStroke }}
               tickLine={false}
             />
             <YAxis
               tickFormatter={(v) => formatNumber(v as number)}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 11, fill: cs.tickColor }}
               axisLine={false}
               tickLine={false}
               width={70}
@@ -58,15 +49,15 @@ export function BarChart({ data, bars, xAxisKey, height = 300, layout = 'horizon
             <XAxis
               type="number"
               tickFormatter={(v) => formatNumber(v as number)}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 11, fill: cs.tickColor }}
               axisLine={false}
               tickLine={false}
             />
             <YAxis
               type="category"
               dataKey={xAxisKey}
-              tick={{ fontSize: 11, fill: '#64748b' }}
-              axisLine={{ stroke: '#e2e8f0' }}
+              tick={{ fontSize: 11, fill: cs.tickColor }}
+              axisLine={{ stroke: cs.gridStroke }}
               tickLine={false}
               width={110}
             />
@@ -75,11 +66,11 @@ export function BarChart({ data, bars, xAxisKey, height = 300, layout = 'horizon
         <Tooltip
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           formatter={(v: any) => formatNumber(v as number)}
-          contentStyle={TOOLTIP_STYLE}
+          contentStyle={cs.tooltipStyle}
           cursor={{ fill: 'rgba(100,116,139,0.06)' }}
         />
         <Legend
-          wrapperStyle={{ direction: 'rtl', fontSize: 13, paddingTop: 8 }}
+          wrapperStyle={{ direction: 'rtl', fontSize: 13, paddingTop: 8, color: cs.tickColor }}
           iconType="circle"
           iconSize={8}
         />

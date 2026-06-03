@@ -67,8 +67,19 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: async (id: string) => {
       if (USE_MOCK) return
-      // Deactivate instead of hard delete to preserve history
       const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  })
+}
+
+export function useHardDeleteProduct() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (USE_MOCK) return
+      const { error } = await supabase.from('products').delete().eq('id', id)
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),

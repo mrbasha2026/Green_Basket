@@ -21,7 +21,7 @@ import { useWasteByRange } from '@/hooks/useWaste'
 import { useAllProducts, useUpsertProduct, useDeleteProduct, useToggleProductActive } from '@/hooks/useProducts'
 import { useProducts } from '@/hooks/useProducts'
 import { exportToExcel } from '@/lib/excel'
-import { formatNumber, formatDate, todayISO } from '@/lib/utils'
+import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 import type { Product } from '@/types'
 import { cn } from '@/lib/utils'
 import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList, Plus } from 'lucide-react'
@@ -466,13 +466,15 @@ export default function Inventory() {
                       <p className="text-center text-muted-foreground py-8 text-sm">لا توجد بيانات — اضغط عرض</p>
                     ) : (
                       <ResponsiveContainer width="100%" height={200}>
+                        {(() => { const cs = getChartStyle(); return (
                         <BarChart data={topStockChart} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                          <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-                          <Tooltip formatter={(v: number) => [`${formatNumber(v)} كج`, 'الكمية']} />
+                          <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} />
+                          <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                          <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} كج`, 'الكمية']} />
                           <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
                         </BarChart>
+                        )})()}
                       </ResponsiveContainer>
                     )}
                   </CardContent>
@@ -490,7 +492,7 @@ export default function Inventory() {
                             <Pie data={categoryChart} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
                               {categoryChart.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                             </Pie>
-                            <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'القيمة']} />
+                            <Tooltip contentStyle={getChartStyle().tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'القيمة']} />
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="space-y-1.5 mt-2">

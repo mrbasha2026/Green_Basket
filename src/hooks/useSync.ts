@@ -40,37 +40,40 @@ export function useSyncPendingReview() {
 export function useApprovePendingReview() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (review: SyncPendingReview) => {
+    mutationFn: async ({ review, existingCustomerId }: { review: SyncPendingReview; existingCustomerId?: string }) => {
       if (review.type === 'customer') {
-        const name = review.suggested_match || review.raw_name
-
-        // اكتشاف نوع العميل من الاسم
-        let customerType: Customer['type'] = 'مطعم'
-        if (name.includes('مستشفى'))     customerType = 'مستشفى'
-        else if (name.includes('فندق'))  customerType = 'فندق'
-        else if (name.includes('تجزئة')) customerType = 'تجزئة'
-
-        // إنشاء العميل إذا لم يكن موجوداً
-        const { data: existing } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('name_ar', name)
-          .maybeSingle()
-
         let customerId: string
-        if (existing) {
-          customerId = existing.id
+
+        if (existingCustomerId) {
+          // ربط بعميل موجود
+          customerId = existingCustomerId
         } else {
-          const { data: created, error: cErr } = await supabase
+          const name = review.suggested_match || review.raw_name
+
+          let customerType: Customer['type'] = 'مطعم'
+          if (name.includes('مستشفى'))     customerType = 'مستشفى'
+          else if (name.includes('فندق'))  customerType = 'فندق'
+          else if (name.includes('تجزئة')) customerType = 'تجزئة'
+
+          const { data: existing } = await supabase
             .from('customers')
-            .insert({ name_ar: name, type: customerType, is_active: true })
             .select('id')
-            .single()
-          if (cErr) throw cErr
-          customerId = created.id
+            .eq('name_ar', name)
+            .maybeSingle()
+
+          if (existing) {
+            customerId = existing.id
+          } else {
+            const { data: created, error: cErr } = await supabase
+              .from('customers')
+              .insert({ name_ar: name, type: customerType, is_active: true })
+              .select('id')
+              .single()
+            if (cErr) throw cErr
+            customerId = created.id
+          }
         }
 
-        // ربط اسم الـ Sheet بالعميل
         await supabase
           .from('customer_sheet_mapping')
           .upsert({ sheet_name: review.raw_name, customer_id: customerId }, { onConflict: 'sheet_name' })

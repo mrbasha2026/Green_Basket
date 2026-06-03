@@ -51,6 +51,25 @@ export function todayISO(): string {
   return format(tz, 'yyyy-MM-dd')
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type TooltipFmt = (...args: any[]) => any
+
+/** ألوان الـ chart موحدة وتعمل في light/dark */
+export function getChartStyle() {
+  const isDark = document.documentElement.classList.contains('dark')
+  return {
+    gridStroke: isDark ? '#334155' : '#e2e8f0',
+    tickColor: isDark ? '#94a3b8' : '#64748b',
+    tooltipStyle: {
+      borderRadius: '8px',
+      border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+      fontSize: '12px',
+      background: isDark ? '#1e293b' : '#ffffff',
+      color: isDark ? '#f8fafc' : '#0f172a',
+    } as React.CSSProperties,
+  }
+}
+
 export function monthName(month: number): string {
   const names = [
     'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',

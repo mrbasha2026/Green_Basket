@@ -9,7 +9,7 @@ import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
 import { useWaste } from '@/hooks/useWaste'
 import { useInventoryDaily } from '@/hooks/useInventory'
-import { formatNumber, formatDate, todayISO } from '@/lib/utils'
+import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#dc2626', '#8b5cf6', '#ec4899']
 
@@ -18,20 +18,19 @@ function getMonthStart() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-function KpiCard({ title, value, unit, sub, icon: Icon, gradient, trend }: {
+function KpiCard({ title, value, unit, sub, icon: Icon, color, trend }: {
   title: string; value: number; unit?: string; sub?: string
-  icon: React.ElementType; gradient: string; trend?: number
+  icon: React.ElementType; color: string; trend?: number
 }) {
   return (
-    <Card className="relative overflow-hidden border-0 shadow-sm">
-      <div className={`absolute inset-0 opacity-5 ${gradient}`} />
-      <CardContent className="pt-5 relative">
+    <Card className={`relative overflow-hidden border-l-4 shadow-sm ${color}`}>
+      <CardContent className="pt-4 pb-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground mb-1.5 font-medium">{title}</p>
-            <p className="text-2xl font-bold text-foreground tabular-nums">
+            <p className="text-xs text-muted-foreground mb-1 font-medium uppercase tracking-wide">{title}</p>
+            <p className="text-2xl font-bold text-foreground tabular-nums leading-tight">
               {formatNumber(value)}
-              {unit && <span className="text-sm font-normal text-muted-foreground mr-1">{unit}</span>}
+              {unit && <span className="text-sm font-normal text-muted-foreground mr-1.5">{unit}</span>}
             </p>
             {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
             {trend !== undefined && (
@@ -41,8 +40,8 @@ function KpiCard({ title, value, unit, sub, icon: Icon, gradient, trend }: {
               </div>
             )}
           </div>
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${gradient}`}>
-            <Icon className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-muted/60">
+            <Icon className="w-5 h-5 text-muted-foreground" />
           </div>
         </div>
       </CardContent>
@@ -119,6 +118,7 @@ export default function Dashboard() {
   }, [salesRange])
 
   const tickFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)
+  const cs = getChartStyle()
 
   return (
     <div className="space-y-5">
@@ -134,12 +134,16 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/20' },
+          { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/20 dark:border-blue-900' },
           { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/20' },
           { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/20' },
-          { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-purple-500/10 text-purple-600 border-purple-200 hover:bg-purple-500/20' },
+          { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-purple-500/10 text-purple-600 border-purple-200 hover:bg-purple-500/20 dark:border-purple-900' },
+          { to: '/reports', label: 'التقارير', icon: BarChart3, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
+          { to: '/customers', label: 'العملاء', icon: RefreshCw, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
+          { to: '/account-statement', label: 'كشف الحساب', icon: DollarSign, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
+          { to: '/analytics', label: 'الإحصائيات', icon: TrendingUp, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
         ].map(a => (
-          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all shadow-sm ${a.color}`}>
+          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${a.color}`}>
             <a.icon className="w-4 h-4 shrink-0" />{a.label}
           </Link>
         ))}
@@ -150,17 +154,17 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-28" />)}</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="إجمالي المبيعات" value={totalSales} unit="ر.س" sub={`${invoiceCount} فاتورة`} icon={TrendingUp} gradient="bg-success" />
-            <KpiCard title="إجمالي المشتريات" value={totalPurchases} unit="ر.س" icon={ShoppingCart} gradient="bg-blue-500" />
-            <KpiCard title="صافي الربح" value={netProfit} unit="ر.س" sub={`هامش ${marginPct.toFixed(1)}%`} icon={DollarSign} gradient={netProfit >= 0 ? 'bg-emerald-500' : 'bg-danger'} trend={marginPct} />
-            <KpiCard title="مرتجعات المبيعات" value={salesReturns} unit="ر.س" icon={BarChart3} gradient="bg-warning" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiCard title="إجمالي المبيعات" value={totalSales} unit="ر.س" sub={`${invoiceCount} فاتورة`} icon={TrendingUp} color="border-success" />
+            <KpiCard title="إجمالي المشتريات" value={totalPurchases} unit="ر.س" icon={ShoppingCart} color="border-blue-500" />
+            <KpiCard title="صافي الربح" value={netProfit} unit="ر.س" sub={`هامش ${marginPct.toFixed(1)}%`} icon={DollarSign} color={netProfit >= 0 ? 'border-emerald-500' : 'border-danger'} trend={marginPct} />
+            <KpiCard title="مرتجعات المبيعات" value={salesReturns} unit="ر.س" icon={BarChart3} color="border-warning" />
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="هدر الكميات" value={totalWasteKg} unit="كج" sub={`${wastePercent.toFixed(1)}% من المشتريات`} icon={Trash2} gradient={wastePercent > 5 ? 'bg-danger' : 'bg-orange-400'} />
-            <KpiCard title="أصناف منخفضة" value={lowStockItems.length} sub="أقل من 10 كج" icon={AlertTriangle} gradient={lowStockItems.length > 0 ? 'bg-danger' : 'bg-success'} />
-            <KpiCard title="فواتير المبيعات" value={invoiceCount} icon={Package} gradient="bg-violet-500" />
-            <KpiCard title="تكلفة البضاعة" value={totalCOGS} unit="ر.س" icon={DollarSign} gradient="bg-slate-500" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiCard title="هدر الكميات" value={totalWasteKg} unit="كج" sub={`${wastePercent.toFixed(1)}% من المشتريات`} icon={Trash2} color={wastePercent > 5 ? 'border-danger' : 'border-orange-400'} />
+            <KpiCard title="أصناف منخفضة" value={lowStockItems.length} sub="أقل من 10 كج" icon={AlertTriangle} color={lowStockItems.length > 0 ? 'border-danger' : 'border-success'} />
+            <KpiCard title="فواتير المبيعات" value={invoiceCount} icon={Package} color="border-violet-500" />
+            <KpiCard title="تكلفة البضاعة" value={totalCOGS} unit="ر.س" icon={DollarSign} color="border-slate-400" />
           </div>
         </>
       )}
@@ -201,14 +205,11 @@ export default function Dashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={230}>
                 <LineChart data={dailyChart} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={v => v.substring(5)} />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
-                  <Tooltip
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                    formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name]}
-                  />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => v.substring(5)} />
+                  <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
+                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name]} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: cs.tickColor }} />
                   <Line type="monotone" dataKey="مبيعات" stroke="#16a34a" strokeWidth={2.5} dot={false} />
                   <Line type="monotone" dataKey="مشتريات" stroke="#2563eb" strokeWidth={2} dot={false} strokeDasharray="4 2" />
                   <Line type="monotone" dataKey="ربح" stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
@@ -239,10 +240,7 @@ export default function Dashboard() {
                     <Pie data={customerPie} cx="50%" cy="50%" innerRadius={42} outerRadius={68} dataKey="value" paddingAngle={3}>
                       {customerPie.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                     </Pie>
-                    <Tooltip
-                      contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                      formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المبيعات']}
-                    />
+                    <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المبيعات']} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-1.5 mt-2">
@@ -274,14 +272,11 @@ export default function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={topProductsChart} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={v => String(v).length > 8 ? String(v).substring(0, 8) + '…' : v} />
-                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
-                <Tooltip
-                  contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                  formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name === 'value' ? 'الإيراد' : 'الربح']}
-                />
-                <Legend formatter={(v) => v === 'value' ? 'الإيراد' : 'الربح'} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => String(v).length > 8 ? String(v).substring(0, 8) + '…' : v} />
+                <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name === 'value' ? 'الإيراد' : 'الربح']} />
+                <Legend formatter={(v) => v === 'value' ? 'الإيراد' : 'الربح'} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: cs.tickColor }} />
                 <Bar dataKey="value" fill="#16a34a" radius={[4, 4, 0, 0]} name="value" maxBarSize={40} />
                 <Bar dataKey="profit" fill="#f59e0b" radius={[4, 4, 0, 0]} name="profit" maxBarSize={40} />
               </BarChart>

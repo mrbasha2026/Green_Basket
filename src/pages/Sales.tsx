@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,7 +19,7 @@ import { useInventoryDaily } from '@/hooks/useInventory'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useCustomerPrices, useUpsertCustomerPrices } from '@/hooks/useCustomerPrices'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
-import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
+import { exportToExcel, parseExcelFile } from '@/lib/excel'
 import type { Sale, SaleFormRow } from '@/types'
 import { cn } from '@/lib/utils'
 import { Plus, Trash2, Printer, Upload, FileDown, ShoppingBag, RotateCcw, FileText, Eye, Pencil, Users, List } from 'lucide-react'
@@ -136,7 +137,7 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
         const prod=findProductLocal(String(r['اسم الصنف']??''));if(!prod){unmatched.push(String(r['اسم الصنف']));return}
         const qty=Number(r['الكمية(كج)']??0); if(qty<=0) return
         const wac=getWAC(prod.id);const dp=defaultPrices?.find(p=>p.product_id===prod.id)?.price_per_kg
-        const price=Number(r['سعر البيع']??dp??0); if(price<=0&&!dp) return
+        const price=Number(r['سعر البيع']??0)||dp||0; if(price<=0) return
         newRows.push({product_id:prod.id,qty_kg:qty,price_per_kg:price||dp||0,purchase_price_per_kg:wac,wac})
       })
       if(unmatched.length>0) toast.warning(`لم يُطابَق: ${unmatched.join('، ')}`)
@@ -252,6 +253,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
   const [filterProduct, setFilterProduct] = useState('')
   const [filterType, setFilterType] = useState<'all'|'sale'|'return'>('all')
   const [deleteId, setDeleteId] = useState<string|null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const {data:customers}=useCustomers()
   const {mutateAsync:deleteSale,isPending:isDeleting}=useDeleteSale()
 
@@ -292,6 +294,16 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
           {(filterDateFrom||filterDateTo||filterCustomer||filterProduct||filterType!=='all')&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterCustomer('');setFilterProduct('');setFilterType('all')}}>مسح</Button>}
         </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                onClick={async () => { for (const id of selectedIds) { await deleteSale(id) } setSelectedIds(new Set()); toast.success(`تم حذف ${selectedIds.size} سجل`) }}>
+                <Trash2 className="w-3 h-3"/>حذف المحدد
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>إلغاء</Button>
+            </div>
+          )}
           <span className="text-xs text-muted-foreground">{filtered.length} سجل</span>
           <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleExport}><FileDown className="w-3 h-3"/>تصدير Excel</Button>
         </div>
@@ -301,12 +313,27 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
       ):filtered.length===0?(
         <div className="flex-1 flex items-center justify-center text-muted-foreground"><div className="text-center"><List className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد سجلات</p></div></div>
       ):(
-        <div className="overflow-auto flex-1">
+        <div className="overflow-auto max-h-[520px] flex-1">
           <table className="w-full text-sm">
-            <thead><tr className="border-b border-border bg-muted/20 sticky top-0">{['التاريخ','النوع','العميل','الصنف','الفاتورة','الكمية(كج)','سعر البيع','الإجمالي','الربح',''].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}</tr></thead>
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-border bg-muted/80">
+                <th className="px-3 py-3 w-10">
+                  <input type="checkbox" className="rounded"
+                    checked={filtered.length > 0 && filtered.every(s => selectedIds.has(s.id))}
+                    onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(s => s.id)) : new Set())}
+                  />
+                </th>
+                {['التاريخ','النوع','العميل','الصنف','الفاتورة','الكمية(كج)','سعر البيع','الإجمالي','الربح',''].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}
+              </tr>
+            </thead>
             <tbody>
-              {filtered.map((s,i)=>{const profit=s.total_amount-s.total_purchase;const isReturn=s.transaction_type==='مرتجع_مبيعات';return(
-                <tr key={s.id} className={cn('border-b border-border/40 hover:bg-muted/20',i%2===1&&'bg-muted/10',isReturn&&'bg-warning/5')}>
+              {filtered.map((s,i)=>{const profit=s.total_amount-s.total_purchase;const isReturn=s.transaction_type==='مرتجع_مبيعات';const isSelected=selectedIds.has(s.id);return(
+                <tr key={s.id} className={cn('border-b border-border/40 hover:bg-muted/20',i%2===1&&'bg-muted/10',isReturn&&'bg-warning/5',isSelected&&'bg-primary/5')}>
+                  <td className="px-3 py-2">
+                    <input type="checkbox" className="rounded" checked={isSelected}
+                      onChange={e => setSelectedIds(prev => { const n=new Set(prev); e.target.checked?n.add(s.id):n.delete(s.id); return n })}
+                    />
+                  </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(s.date)}</td>
                   <td className="px-3 py-2"><span className={cn('text-xs px-1.5 py-0.5 rounded font-medium',isReturn?'bg-warning/15 text-warning':'bg-success/15 text-success')}>{isReturn?'مرتجع':'بيع'}</span></td>
                   <td className="px-3 py-2 font-medium text-xs">{s.customer?.name_ar??'—'}</td>
@@ -341,6 +368,7 @@ export default function Sales() {
   const [drawerOpen,setDrawerOpen]=useState(false); const [editGroup,setEditGroup]=useState<SaleGroup|null>(null)
   const [detailGroup,setDetailGroup]=useState<SaleGroup|null>(null); const [detailOpen,setDetailOpen]=useState(false)
   const [deleteInvoice,setDeleteInvoice]=useState<SaleGroup|null>(null); const [activeSection,setActiveSection]=useState<Section>('invoices')
+  const qc = useQueryClient()
   const [filterDateFrom,setFilterDateFrom]=useState(''); const [filterDateTo,setFilterDateTo]=useState('')
   const [filterCustomer,setFilterCustomer]=useState(''); const [filterProduct,setFilterProduct]=useState('')
 
@@ -381,9 +409,9 @@ export default function Sales() {
       </div>
     )
     return (
-      <div className="overflow-auto flex-1">
+      <div className="overflow-auto max-h-[520px] flex-1">
         <table className="w-full text-sm">
-          <thead><tr className="border-b border-border bg-muted/20 sticky top-0">{['رقم الفاتورة','العميل','التاريخ','الأصناف','الإجمالي','الربح','النوع','الإجراءات'].map(h=><th key={h} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <thead className="sticky top-0 z-10"><tr className="border-b border-border bg-muted/80">{['رقم الفاتورة','العميل','التاريخ','الأصناف','الإجمالي','الربح','النوع','الإجراءات'].map(h=><th key={h} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
           <tbody>
             {groups.map(g=>(
               <tr key={g.key} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
@@ -506,7 +534,11 @@ export default function Sales() {
               onClick={async()=>{
                 if(!deleteInvoice) return
                 if(deleteInvoice.invoice_number){await deleteByInvoice(deleteInvoice.invoice_number)}
-                else{for(const item of deleteInvoice.items)await supabase.from('sales').delete().eq('id',item.id)}
+                else{
+                  for(const item of deleteInvoice.items) await supabase.from('sales').delete().eq('id',item.id)
+                  qc.invalidateQueries({ queryKey: ['sales'] })
+                  qc.invalidateQueries({ queryKey: ['inventory'] })
+                }
                 toast.success('تم الحذف');setDeleteInvoice(null)
               }}>
               {isDeleting?'جاري الحذف...':'حذف'}

@@ -14,6 +14,7 @@ export function useInventoryDaily(date?: string) {
         .from('inventory_daily')
         .select('*, product:products(*)')
         .order('date', { ascending: false })
+        .limit(50000)
       if (date) q.eq('date', date)
       const { data, error } = await q
       if (error) throw error
@@ -72,6 +73,7 @@ export function useEarliestInventory() {
         .from('inventory_daily')
         .select('*, product:products(*)')
         .order('date', { ascending: true })
+        .limit(50000)
       if (error) throw error
       const seen = new Set<string>()
       return (data as InventoryDaily[]).filter(i => {
@@ -100,6 +102,7 @@ export function useInventoryUpTo(date: string) {
         .select('*, product:products(*)')
         .lte('date', date)
         .order('date', { ascending: false })
+        .limit(50000)
       if (error) throw error
       const seen = new Set<string>()
       return (data as InventoryDaily[]).filter(i => {
@@ -123,6 +126,7 @@ export function useInventoryRange(from: string, to: string) {
         .gte('date', from)
         .lte('date', to)
         .order('date', { ascending: false })
+        .limit(50000)
       if (error) throw error
       return data as InventoryDaily[]
     },

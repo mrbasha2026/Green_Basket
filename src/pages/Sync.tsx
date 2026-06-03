@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { useSyncLogs, useSyncPendingReview, useTriggerSync, useDeleteSheetDataByMonth, useApprovePendingReview, useRejectPendingReview } from '@/hooks/useSync'
+import { useCustomers } from '@/hooks/useCustomers'
+import { Combobox } from '@/components/ui/combobox'
 import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/utils'
 import type { SyncLog } from '@/types'
@@ -42,11 +44,14 @@ function currentMonthKey() {
 export default function Sync() {
   const { data: logs, isLoading: logsLoading } = useSyncLogs()
   const { data: pending } = useSyncPendingReview()
+  const { data: customers } = useCustomers()
   const { mutateAsync: triggerSync, isPending: syncing } = useTriggerSync()
   const { mutateAsync: deleteSheetData, isPending: isDeleting } = useDeleteSheetDataByMonth()
   const { mutateAsync: approve } = useApprovePendingReview()
   const { mutateAsync: reject } = useRejectPendingReview()
   const [forcingSyncKey, setForcingSyncKey] = useState<string|null>(null)
+  // اختيار عميل موجود لكل سطر معلق: key = review.id, value = customer_id
+  const [selectedCustomers, setSelectedCustomers] = useState<Record<string, string>>({})
 
   // Per-month sheets config
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>({})
@@ -313,28 +318,50 @@ export default function Sync() {
       {pendingCustomers.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-warning">⚠️ عملاء جدد بحاجة لمراجعة</CardTitle>
+            <CardTitle className="text-base text-warning flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              عملاء جدد من الـ Sheet بحاجة لمراجعة
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              اختر عميلاً موجوداً لربطه، أو اضغط "إنشاء جديد" لإضافة عميل جديد تلقائياً
+            </p>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {pendingCustomers.map(p => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <div>
-                    <p className="font-medium">{p.raw_name}</p>
-                    {p.suggested_match && (
-                      <p className="text-xs text-muted-foreground">اقتراح: {p.suggested_match}</p>
-                    )}
+              {pendingCustomers.map(p => {
+                const customerOptions = (customers ?? []).map(c => ({ value: c.id, label: c.name_ar }))
+                const selected = selectedCustomers[p.id] ?? ''
+                return (
+                  <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-muted/40 border border-border">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{p.raw_name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">اسم الورقة في الـ Sheet</p>
+                    </div>
+                    <div className="w-56 shrink-0">
+                      <Combobox
+                        options={customerOptions}
+                        value={selected}
+                        onValueChange={val => setSelectedCustomers(prev => ({ ...prev, [p.id]: val }))}
+                        placeholder="ربط بعميل موجود..."
+                        searchPlaceholder="ابحث عن عميل..."
+                      />
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm"
+                        onClick={() => approve({ review: p, existingCustomerId: selected || undefined })}
+                        className="gap-1 h-8 text-xs">
+                        <CheckCircle className="w-3 h-3" />
+                        {selected ? 'ربط' : 'إنشاء جديد'}
+                      </Button>
+                      <Button size="sm" variant="outline"
+                        onClick={() => reject(p.id)}
+                        className="gap-1 h-8 text-xs text-danger border-danger/30 hover:bg-danger/10">
+                        <XCircle className="w-3 h-3" /> رفض
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => approve(p)} className="gap-1">
-                      <CheckCircle className="w-3 h-3" /> اعتماد
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => reject(p.id)} className="gap-1 text-danger border-danger hover:bg-danger/10">
-                      <XCircle className="w-3 h-3" /> رفض
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </CardContent>
         </Card>
@@ -356,7 +383,7 @@ export default function Sync() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => approve(p)} className="gap-1">
+                    <Button size="sm" onClick={() => approve({ review: p })} className="gap-1">
                       <CheckCircle className="w-3 h-3" /> اعتماد
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => reject(p.id)} className="gap-1 text-danger border-danger hover:bg-danger/10">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,18 +9,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAllUsers, useUpsertUserRole, usePermission, type AppRole } from '@/hooks/usePermissions'
 import { useAuth } from '@/hooks/useAuth'
-import { useAllProducts, useUpsertProduct } from '@/hooks/useProducts'
+import { useAllProducts, useUpsertProduct, useToggleProductActive, useHardDeleteProduct } from '@/hooks/useProducts'
 import { useCostCategories, useUpsertCostCategory } from '@/hooks/useOverhead'
 import { useCustomerPrices, useUpsertCustomerPrices } from '@/hooks/useCustomerPrices'
 import { useProducts } from '@/hooks/useProducts'
-import { useCustomers } from '@/hooks/useCustomers'
+import { useCustomers, useAllCustomers, useUpsertCustomer } from '@/hooks/useCustomers'
+import { useSuppliers, useUpsertSupplier, useDeleteSupplier } from '@/hooks/useSuppliers'
 import { useUpsertInventory, useInventoryDaily, useDeleteInventory } from '@/hooks/useInventory'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useSiteSettings, useUpsertSiteSettings } from '@/hooks/useSiteSettings'
 import type { Product, CostCategory } from '@/types'
 import {
-  Building2, Package, DollarSign, Tags, UserCog,
-  Settings as SettingsIcon, Download, Archive, Pencil, Trash2, Plus, Layers,
+  Building2, Package, UserCog, Users, Truck,
+  Settings as SettingsIcon, Download, Archive, Pencil, Trash2, Plus, EyeOff, AlertTriangle,
 } from 'lucide-react'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -31,6 +32,9 @@ type Section =
   | 'users'
   | 'system'
   | 'backup'
+  | 'products'
+  | 'customers'
+  | 'suppliers'
 
 // ── Company Settings ───────────────────────────────────────────────────────────
 function CompanyTab() {
@@ -133,19 +137,62 @@ function CompanyTab() {
 function ProductsTab() {
   const { data: products } = useAllProducts()
   const { mutateAsync: upsert, isPending } = useUpsertProduct()
+  const { mutateAsync: toggleActive } = useToggleProductActive()
+  const { mutateAsync: hardDelete, isPending: isHardDeleting } = useHardDeleteProduct()
   const [editProduct, setEditProduct] = useState<Partial<Product> | null>(null)
   const [open, setOpen] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [hardDeleteId, setHardDeleteId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
+  const [showDuplicates, setShowDuplicates] = useState(false)
+
+  // كشف الأصناف المكررة (نفس الاسم العربي)
+  const duplicateNames = useMemo(() => {
+    const counts = new Map<string, number>()
+    ;(products ?? []).forEach(p => counts.set(p.name_ar, (counts.get(p.name_ar) ?? 0) + 1))
+    return new Set([...counts.entries()].filter(([, c]) => c > 1).map(([n]) => n))
+  }, [products])
+
+  const filtered = useMemo(() => (products ?? []).filter(p => {
+    if (!showInactive && !p.is_active) return false
+    if (showDuplicates) return duplicateNames.has(p.name_ar)
+    if (search) return p.name_ar.includes(search) || (p.name_en ?? '').toLowerCase().includes(search.toLowerCase())
+    return true
+  }), [products, showInactive, showDuplicates, search, duplicateNames])
 
   async function handleSave() {
-    if (!editProduct?.name_ar) { toast.error('اسم الصنف مطلوب'); return }
-    try { await upsert(editProduct); toast.success('تم الحفظ'); setOpen(false); setEditProduct(null) } catch { toast.error('حدث خطأ') }
+    if (!editProduct?.name_ar?.trim()) { toast.error('اسم الصنف مطلوب'); return }
+    try {
+      await upsert({ ...editProduct, name_ar: editProduct.name_ar.trim() })
+      toast.success('تم الحفظ')
+      setOpen(false); setEditProduct(null)
+    } catch (e) { toast.error(`حدث خطأ: ${(e as Error).message}`) }
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{products?.length ?? 0} صنف مسجّل</p>
-        <Button size="sm" className="gap-2" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار' }); setOpen(true) }}>
+      {duplicateNames.size > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-warning/10 border border-warning/30 rounded-xl text-sm">
+          <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+          <span className="text-warning font-medium">يوجد {duplicateNames.size} اسم مكرر:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {[...duplicateNames].map(n => <span key={n} className="text-xs bg-warning/15 text-warning px-2 py-0.5 rounded font-mono">{n}</span>)}
+          </div>
+          <button onClick={() => setShowDuplicates(v => !v)} className={cn('mr-auto text-xs px-2.5 py-1 rounded-lg border transition-colors shrink-0', showDuplicates ? 'bg-warning/15 text-warning border-warning/30' : 'bg-background text-muted-foreground border-border hover:bg-muted')}>
+            {showDuplicates ? 'إخفاء' : 'عرض المكررة'}
+          </button>
+        </div>
+      )}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-36 text-sm" />
+          <button onClick={() => setShowInactive(v => !v)} className={cn('text-xs px-3 py-1.5 rounded-lg border transition-colors', showInactive ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}>
+            {showInactive ? 'إخفاء الموقوفة' : 'إظهار الموقوفة'}
+          </button>
+          <span className="text-xs text-muted-foreground">{filtered.length} صنف</span>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار', is_active: true }); setOpen(true) }}>
           <Plus className="w-3.5 h-3.5" />إضافة صنف
         </Button>
       </div>
@@ -153,7 +200,7 @@ function ProductsTab() {
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditProduct(null) }}>
         <DialogContent><DialogHeader><DialogTitle>{editProduct?.id ? 'تعديل صنف' : 'إضافة صنف جديد'}</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1"><Label>الاسم بالعربية</Label><Input value={editProduct?.name_ar ?? ''} onChange={e => setEditProduct(p => ({ ...p, name_ar: e.target.value }))} /></div>
+            <div className="space-y-1"><Label>الاسم بالعربية <span className="text-danger">*</span></Label><Input value={editProduct?.name_ar ?? ''} onChange={e => setEditProduct(p => ({ ...p, name_ar: e.target.value }))} /></div>
             <div className="space-y-1"><Label>الاسم بالإنجليزية</Label><Input value={String(editProduct?.name_en ?? '')} onChange={e => setEditProduct(p => ({ ...p, name_en: e.target.value }))} dir="ltr" /></div>
             <div className="space-y-1"><Label>الفئة</Label>
               <Select value={editProduct?.category ?? 'خضار'} onValueChange={v => v && setEditProduct(p => ({ ...p, category: v as Product['category'] }))}>
@@ -161,22 +208,65 @@ function ProductsTab() {
                 <SelectContent><SelectItem value="خضار">خضار</SelectItem><SelectItem value="فاكهة">فاكهة</SelectItem><SelectItem value="أعشاب">أعشاب</SelectItem></SelectContent>
               </Select>
             </div>
-            <Button onClick={handleSave} disabled={isPending} className="w-full">{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending ? 'جاري...' : 'حفظ'}</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div className="rounded-xl border border-border overflow-hidden">
+      {/* تعطيل */}
+      <Dialog open={!!deleteId} onOpenChange={o => !o && setDeleteId(null)}>
+        <DialogContent className="max-w-sm"><DialogHeader><DialogTitle>تعطيل الصنف</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">لن يظهر في الفواتير الجديدة. السجلات القديمة محفوظة.</p>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>إلغاء</Button>
+            <Button variant="destructive" size="sm" onClick={async () => { if (deleteId) { await toggleActive({ id: deleteId, is_active: false }); toast.success('تم التعطيل'); setDeleteId(null) } }}>تعطيل</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* حذف نهائي */}
+      <Dialog open={!!hardDeleteId} onOpenChange={o => !o && setHardDeleteId(null)}>
+        <DialogContent className="max-w-sm"><DialogHeader><DialogTitle className="text-danger">حذف نهائي للصنف</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">سيتم حذف الصنف نهائياً من قاعدة البيانات. إذا كانت له مبيعات أو مشتريات سابقة، سيفشل الحذف تلقائياً.</p>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" size="sm" onClick={() => setHardDeleteId(null)}>إلغاء</Button>
+            <Button variant="destructive" size="sm" disabled={isHardDeleting} onClick={async () => {
+              if (!hardDeleteId) return
+              try {
+                await hardDelete(hardDeleteId)
+                toast.success('تم الحذف النهائي')
+              } catch { toast.error('فشل الحذف — الصنف مرتبط بسجلات موجودة') }
+              setHardDeleteId(null)
+            }}>{isHardDeleting ? 'جاري...' : 'حذف نهائي'}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
         <table className="w-full text-sm">
-          <thead><tr className="bg-muted/30 border-b border-border">{['الاسم','الإنجليزية','الفئة','الحالة',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <thead className="sticky top-0 bg-muted/40 z-10"><tr className="border-b border-border">{['الاسم','الإنجليزية','الفئة','الحالة','إجراءات'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
           <tbody>
-            {products?.map((p, i) => (
-              <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/20', i % 2 === 1 && 'bg-muted/10')}>
+            {filtered.map((p, i) => (
+              <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10', !p.is_active&&'opacity-60')}>
                 <td className="px-3 py-2 font-medium">{p.name_ar}</td>
                 <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{p.name_en ?? '—'}</td>
                 <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
-                <td className="px-3 py-2"><span className={`text-xs font-medium ${p.is_active ? 'text-success' : 'text-muted-foreground'}`}>{p.is_active ? 'نشط' : 'موقوف'}</span></td>
-                <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button></td>
+                <td className="px-3 py-2">
+                  <button onClick={() => toggleActive({ id: p.id, is_active: !p.is_active })}
+                    className={cn('text-xs px-2 py-0.5 rounded font-medium transition-colors', p.is_active ? 'bg-success/15 text-success hover:bg-success/25' : 'bg-muted text-muted-foreground hover:bg-muted/80')}>
+                    {p.is_active ? 'نشط' : 'موقوف'}
+                  </button>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3"/></Button>
+                    {p.is_active && <Button variant="ghost" size="icon" className="h-7 w-7 text-warning hover:bg-warning/10" title="تعطيل (يحتفظ بالتاريخ)" onClick={() => setDeleteId(p.id)}><EyeOff className="w-3 h-3"/></Button>}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" title="حذف نهائي من قاعدة البيانات" onClick={() => setHardDeleteId(p.id)}><Trash2 className="w-3 h-3"/></Button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -530,6 +620,135 @@ ON CONFLICT DO NOTHING;`}
   )
 }
 
+// ── Customers Tab ─────────────────────────────────────────────────────────────
+type CustomerType = 'مستشفى' | 'فندق' | 'مطعم' | 'تجزئة'
+
+function CustomersTab() {
+  const { data: customers } = useAllCustomers()
+  const { mutateAsync: upsert, isPending } = useUpsertCustomer()
+  const [editItem, setEditItem] = useState<{id?:string;name_ar:string;type:CustomerType;is_active:boolean}|null>(null)
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = (customers??[]).filter(c => !search || c.name_ar.includes(search))
+
+  async function handleSave() {
+    if (!editItem?.name_ar) { toast.error('اسم العميل مطلوب'); return }
+    try { await upsert(editItem); toast.success('تم الحفظ'); setOpen(false); setEditItem(null) } catch { toast.error('حدث خطأ') }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-40 text-sm" />
+        <Button size="sm" className="gap-1.5" onClick={() => { setEditItem({ name_ar: '', type: 'تجزئة', is_active: true }); setOpen(true) }}>
+          <Plus className="w-3.5 h-3.5" />إضافة عميل
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditItem(null) }}>
+        <DialogContent><DialogHeader><DialogTitle>{editItem?.id ? 'تعديل عميل' : 'إضافة عميل'}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1"><Label>الاسم *</Label><Input value={editItem?.name_ar??''} onChange={e=>setEditItem(p=>({...p!,name_ar:e.target.value}))}/></div>
+            <div className="space-y-1"><Label>النوع</Label>
+              <Select value={editItem?.type??'تجزئة'} onValueChange={v=>v&&setEditItem(p=>({...p!,type:v as CustomerType}))}>
+                <SelectTrigger><SelectValue/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="تجزئة">تجزئة</SelectItem>
+                  <SelectItem value="مستشفى">مستشفى</SelectItem>
+                  <SelectItem value="فندق">فندق</SelectItem>
+                  <SelectItem value="مطعم">مطعم</SelectItem>
+                </SelectContent>
+              </Select></div>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending?'جاري...':'حفظ'}</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted/40 z-10"><tr className="border-b border-border">{['الاسم','النوع','الحالة',''].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map((c, i) => (
+              <tr key={c.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10')}>
+                <td className="px-3 py-2 font-medium">{c.name_ar}</td>
+                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{c.type}</Badge></td>
+                <td className="px-3 py-2"><span className={`text-xs font-medium ${c.is_active?'text-success':'text-muted-foreground'}`}>{c.is_active?'نشط':'موقوف'}</span></td>
+                <td className="px-3 py-2">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditItem({id:c.id,name_ar:c.name_ar,type:c.type,is_active:c.is_active}); setOpen(true) }}><Pencil className="w-3 h-3"/></Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Suppliers Tab ─────────────────────────────────────────────────────────────
+function SuppliersTab() {
+  const { data: suppliers } = useSuppliers()
+  const { mutateAsync: upsert, isPending } = useUpsertSupplier()
+  const { mutateAsync: remove } = useDeleteSupplier()
+  const [editItem, setEditItem] = useState<{id?:string;name_ar:string;phone:string;city:string;is_active:boolean;is_default:boolean}|null>(null)
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = (suppliers??[]).filter(s => !search || s.name_ar.includes(search))
+
+  async function handleSave() {
+    if (!editItem?.name_ar) { toast.error('اسم المورد مطلوب'); return }
+    try { await upsert(editItem as Parameters<typeof upsert>[0]); toast.success('تم الحفظ'); setOpen(false); setEditItem(null) } catch { toast.error('حدث خطأ') }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-40 text-sm" />
+        <Button size="sm" className="gap-1.5" onClick={() => { setEditItem({ name_ar: '', phone: '', city: '', is_active: true, is_default: false }); setOpen(true) }}>
+          <Plus className="w-3.5 h-3.5" />إضافة مورد
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditItem(null) }}>
+        <DialogContent><DialogHeader><DialogTitle>{editItem?.id ? 'تعديل مورد' : 'إضافة مورد'}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1"><Label>الاسم *</Label><Input value={editItem?.name_ar??''} onChange={e=>setEditItem(p=>({...p!,name_ar:e.target.value}))}/></div>
+            <div className="space-y-1"><Label>الهاتف</Label><Input value={editItem?.phone??''} onChange={e=>setEditItem(p=>({...p!,phone:e.target.value}))} dir="ltr"/></div>
+            <div className="space-y-1"><Label>المدينة</Label><Input value={editItem?.city??''} onChange={e=>setEditItem(p=>({...p!,city:e.target.value}))}/></div>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending?'جاري...':'حفظ'}</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted/40 z-10"><tr className="border-b border-border">{['الاسم','الهاتف','المدينة','الحالة',''].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map((s, i) => (
+              <tr key={s.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10')}>
+                <td className="px-3 py-2 font-medium">{s.name_ar}{s.is_default&&<Badge className="text-xs mr-1.5 bg-primary/15 text-primary border-primary/20">افتراضي</Badge>}</td>
+                <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{s.phone??'—'}</td>
+                <td className="px-3 py-2 text-muted-foreground text-xs">{s.city??'—'}</td>
+                <td className="px-3 py-2"><span className={`text-xs font-medium ${s.is_active?'text-success':'text-muted-foreground'}`}>{s.is_active?'نشط':'موقوف'}</span></td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditItem({id:s.id,name_ar:s.name_ar,phone:s.phone??'',city:s.city??'',is_active:s.is_active,is_default:s.is_default}); setOpen(true) }}><Pencil className="w-3 h-3"/></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => remove(s.id).then(()=>toast.success('تم الحذف'))}><Trash2 className="w-3 h-3"/></Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Settings ──────────────────────────────────────────────────────────────
 interface SidebarSection { id: Section; label: string; icon: React.ElementType; group?: string }
 
@@ -538,6 +757,9 @@ const SECTIONS: SidebarSection[] = [
   { id: 'system', label: 'إعدادات النظام', icon: SettingsIcon, group: 'الإعدادات العامة' },
   { id: 'backup', label: 'النسخ الاحتياطي والـ SQL', icon: Archive, group: 'الإعدادات العامة' },
   { id: 'users', label: 'إدارة المستخدمين', icon: UserCog, group: 'الصلاحيات' },
+  { id: 'products', label: 'إدارة الأصناف', icon: Package, group: 'البيانات الرئيسية' },
+  { id: 'customers', label: 'إدارة العملاء', icon: Users, group: 'البيانات الرئيسية' },
+  { id: 'suppliers', label: 'إدارة الموردين', icon: Truck, group: 'البيانات الرئيسية' },
 ]
 
 const CONTENT: Record<Section, ReactNode> = {
@@ -545,6 +767,9 @@ const CONTENT: Record<Section, ReactNode> = {
   system: <SystemTab />,
   backup: <BackupTab />,
   users: <UsersTab />,
+  products: <ProductsTab />,
+  customers: <CustomersTab />,
+  suppliers: <SuppliersTab />,
 }
 
 export default function Settings() {

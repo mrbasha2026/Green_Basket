@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,10 +17,10 @@ import { usePurchases, useUpsertPurchases, useDeletePurchase, useDeletePurchases
 import { useSuppliers } from '@/hooks/useSuppliers'
 import { calcCostPerKg } from '@/lib/calculations'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
-import { exportToExcel, downloadTemplate, parseExcelFile } from '@/lib/excel'
+import { exportToExcel, parseExcelFile } from '@/lib/excel'
 import type { Purchase, PurchaseFormRow } from '@/types'
 import { cn } from '@/lib/utils'
-import { Plus, Trash2, Printer, Upload, FileDown, ShoppingCart, RotateCcw, FileText, Eye, Pencil, Truck, List } from 'lucide-react'
+import { Plus, Trash2, Printer, Upload, FileDown, RotateCcw, FileText, Eye, Pencil, Truck, List } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 // ── Invoice group type ────────────────────────────────────────────────────────
@@ -182,7 +183,16 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
       title={`${isEdit?'تعديل':'فاتورة'} مشتريات — ${invoiceNumber}`}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm"><span className="text-muted-foreground">الإجمالي: </span><span className="font-bold text-primary text-base">{formatNumber(grandTotal)} ر.س</span></div>
+          <div className="text-sm space-y-0.5">
+            <div className="flex items-center gap-3">
+              <span className="text-muted-foreground">الإجمالي قبل ض.ق.م:</span>
+              <span className="font-bold text-primary text-base">{formatNumber(grandTotal)} ر.س</span>
+              <button onClick={()=>setApplyVat(v=>!v)} className={cn('text-xs px-2.5 py-1 rounded-lg border transition-colors font-medium',applyVat?'bg-warning/15 text-warning border-warning/30':'bg-muted text-muted-foreground border-border hover:bg-muted/80')}>
+                {applyVat?`ض.ق.م ${Number(siteSettings.vat_rate??15)}% مطبقة`:`إضافة ض.ق.م ${Number(siteSettings.vat_rate??15)}%`}
+              </button>
+            </div>
+            {applyVat&&<div className="flex gap-4 text-xs"><span className="text-muted-foreground">الضريبة: <span className="text-warning font-medium">{formatNumber(grandTotal*(Number(siteSettings.vat_rate??15)/100))} ر.س</span></span><span className="font-bold text-success">الإجمالي مع الضريبة: {formatNumber(grandTotal*(1+Number(siteSettings.vat_rate??15)/100))} ر.س</span></div>}
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5"><Printer className="w-4 h-4"/>طباعة</Button>
             <Button onClick={handleSubmit} disabled={isPending||isDeleting} className="gap-1.5">{(isPending||isDeleting)?'جاري الحفظ...':isEdit?'حفظ التعديلات':'حفظ الفاتورة'}</Button>
@@ -307,6 +317,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
   const [filterProduct, setFilterProduct] = useState('')
   const [filterType, setFilterType] = useState<'all'|'purchase'|'return'>('all')
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const { mutateAsync: deletePurchase, isPending: isDeleting } = useDeletePurchase()
 
   const filtered = useMemo(() => {
@@ -351,6 +362,16 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
           {(filterDateFrom||filterDateTo||filterProduct||filterType!=='all')&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterProduct('');setFilterType('all')}}>مسح</Button>}
         </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                onClick={async () => { for (const id of selectedIds) { await deletePurchase(id) } setSelectedIds(new Set()); toast.success(`تم حذف ${selectedIds.size} سجل`) }}>
+                <Trash2 className="w-3 h-3"/>حذف المحدد
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>إلغاء</Button>
+            </div>
+          )}
           <span className="text-xs text-muted-foreground">{filtered.length} سجل</span>
           <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleExport}><FileDown className="w-3 h-3"/>تصدير Excel</Button>
         </div>
@@ -366,10 +387,25 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
       ) : (
         <div className="overflow-auto flex-1">
           <table className="w-full text-sm">
-            <thead><tr className="border-b border-border bg-muted/20 sticky top-0">{['التاريخ','النوع','الصنف','المورد','الفاتورة','كراتين','التكلفة/كج','الإجمالي (ر.س)',''].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}</tr></thead>
+            <thead>
+              <tr className="border-b border-border bg-muted/20 sticky top-0">
+                <th className="px-3 py-3 w-10">
+                  <input type="checkbox" className="rounded"
+                    checked={filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))}
+                    onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(p => p.id)) : new Set())}
+                  />
+                </th>
+                {['التاريخ','النوع','الصنف','المورد','الفاتورة','كراتين','التكلفة/كج','الإجمالي (ر.س)',''].map(h=><th key={h} className="px-3 py-3 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}
+              </tr>
+            </thead>
             <tbody>
-              {filtered.map((p,i)=>{const isRet=p.transaction_type==='مرتجع_مشتريات';return(
-                <tr key={p.id} className={cn('border-b border-border/40 hover:bg-muted/20',i%2===1&&'bg-muted/10',isRet&&'bg-warning/5')}>
+              {filtered.map((p,i)=>{const isRet=p.transaction_type==='مرتجع_مشتريات';const isSelected=selectedIds.has(p.id);return(
+                <tr key={p.id} className={cn('border-b border-border/40 hover:bg-muted/20',i%2===1&&'bg-muted/10',isRet&&'bg-warning/5',isSelected&&'bg-primary/5')}>
+                  <td className="px-3 py-2">
+                    <input type="checkbox" className="rounded" checked={isSelected}
+                      onChange={e => setSelectedIds(prev => { const n=new Set(prev); e.target.checked?n.add(p.id):n.delete(p.id); return n })}
+                    />
+                  </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(p.date)}</td>
                   <td className="px-3 py-2"><span className={cn('text-xs px-1.5 py-0.5 rounded font-medium',isRet?'bg-warning/15 text-warning':'bg-primary/15 text-primary')}>{isRet?'مرتجع':'شراء'}</span></td>
                   <td className="px-3 py-2 font-medium text-xs">{products.find(pr=>pr.id===p.product_id)?.name_ar??'—'}</td>
@@ -414,6 +450,7 @@ export default function Purchases() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [deleteInvoice, setDeleteInvoice] = useState<InvoiceGroup|null>(null)
   const [activeSection, setActiveSection] = useState<Section>('invoices')
+  const qc = useQueryClient()
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
@@ -454,9 +491,9 @@ export default function Purchases() {
       </div>
     )
     return (
-      <div className="overflow-auto flex-1">
+      <div className="overflow-auto max-h-[520px] flex-1">
         <table className="w-full text-sm">
-          <thead><tr className="border-b border-border bg-muted/20 sticky top-0">{['رقم الفاتورة','المورد','التاريخ','الأصناف','الإجمالي (ر.س)','النوع','الإجراءات'].map(h=><th key={h} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <thead className="sticky top-0 z-10"><tr className="border-b border-border bg-muted/80">{['رقم الفاتورة','المورد','التاريخ','الأصناف','الإجمالي (ر.س)','النوع','الإجراءات'].map(h=><th key={h} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
           <tbody>
             {groups.map(g=>(
               <tr key={g.key} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
@@ -580,7 +617,11 @@ export default function Purchases() {
               onClick={async()=>{
                 if(!deleteInvoice) return
                 if(deleteInvoice.invoice_number){await deleteByInvoice(deleteInvoice.invoice_number)}
-                else{for(const item of deleteInvoice.items)await supabase.from('purchases').delete().eq('id',item.id)}
+                else{
+                  for(const item of deleteInvoice.items) await supabase.from('purchases').delete().eq('id',item.id)
+                  qc.invalidateQueries({ queryKey: ['purchases'] })
+                  qc.invalidateQueries({ queryKey: ['inventory'] })
+                }
                 toast.success('تم الحذف');setDeleteInvoice(null)
               }}>
               {isDeleting?'جاري الحذف...':'حذف'}

@@ -18,7 +18,8 @@ import type { WasteLog } from '@/types'
 import { cn } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import { Combobox } from '@/components/ui/combobox'
-import { BarChart2, List, PieChart as PieChartIcon, Plus } from 'lucide-react'
+import { BarChart2, List, PieChart as PieChartIcon, Plus, ShoppingCart, TrendingUp, Package } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 export default function Waste() {
   const { selectedMonth, selectedYear } = useAppStore()
@@ -124,6 +125,19 @@ export default function Waste() {
     <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '580px' }}>
       {/* Sidebar */}
       <div className="w-64 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+        {/* Quick Actions */}
+        <div className="p-3 border-b border-border space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground px-1 py-0.5 uppercase tracking-wide">إجراءات سريعة</p>
+          {[
+            { to: '/purchases', label: 'مشتريات', icon: ShoppingCart, color: 'text-blue-600 hover:bg-blue-500/10' },
+            { to: '/sales', label: 'مبيعات', icon: TrendingUp, color: 'text-success hover:bg-success/10' },
+            { to: '/inventory', label: 'المخزون', icon: Package, color: 'text-purple-600 hover:bg-purple-500/10' },
+          ].map(a => (
+            <Link key={a.to} to={a.to} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${a.color}`}>
+              <a.icon className="w-3.5 h-3.5" />{a.label}
+            </Link>
+          ))}
+        </div>
         {/* Form */}
         <div className="p-3 border-b border-border">
           <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide flex items-center gap-1.5"><Plus className="w-3 h-3"/>تسجيل هدر جديد</p>
@@ -179,7 +193,7 @@ export default function Waste() {
                 activeSection === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
               <s.icon className="w-4 h-4 shrink-0" />
               <span className="flex-1">{s.label}</span>
-              {'badge' in s && s.badge > 0 && <span className={cn('text-xs px-1.5 py-0.5 rounded-full', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{s.badge}</span>}
+              {'badge' in s && (s as {badge?: number}).badge !== undefined && (s as {badge: number}).badge > 0 && <span className={cn('text-xs px-1.5 py-0.5 rounded-full', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{(s as {badge: number}).badge}</span>}
             </button>
           ))}
         </div>

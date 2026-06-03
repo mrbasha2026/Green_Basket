@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAllCustomers, useUpsertCustomer } from '@/hooks/useCustomers'
 import { useSalesByRange } from '@/hooks/useSales'
-import { formatNumber, formatDate, todayISO } from '@/lib/utils'
+import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import type { Customer } from '@/types'
 import { cn } from '@/lib/utils'
@@ -148,14 +148,16 @@ export function CustomersDashboard() {
             <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">مقارنة الإيرادات والأرباح (آخر 90 يوم)</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={220}>
+                {(() => { const cs = getChartStyle(); return (
                 <BarChart data={barData} margin={{top:5,right:10,left:10,bottom:5}}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
-                  <XAxis dataKey="name" tick={{fontSize:10}}/>
-                  <YAxis tick={{fontSize:11}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
-                  <Tooltip formatter={(v:number,n:string)=>[`${formatNumber(v)} ر.س`,n]}/>
+                  <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke}/>
+                  <XAxis dataKey="name" tick={{fontSize:10, fill: cs.tickColor}}/>
+                  <YAxis tick={{fontSize:11, fill: cs.tickColor}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
+                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v:number,n:string)=>[`${formatNumber(v)} ر.س`,n]}/>
                   <Bar dataKey="الإيراد" fill="#2563eb" radius={[3,3,0,0]}/>
                   <Bar dataKey="الربح" fill="#16a34a" radius={[3,3,0,0]}/>
                 </BarChart>
+                )})()}
               </ResponsiveContainer>
             </CardContent>
           </Card>

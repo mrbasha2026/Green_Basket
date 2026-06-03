@@ -1,5 +1,27 @@
-// ── Export ────────────────────────────────────────────────────────────────────
+// ── Export — يقبل توقيعَين:
+//   1. exportToExcel(filename, headers, rows, sheetName?)
+//   2. exportToExcel(records[], filename)
+// ────────────────────────────────────────────────────────────────────────────
 export async function exportToExcel(
+  filenameOrRecords: string | Record<string, string | number | null | undefined>[],
+  headersOrFilename: string[] | string,
+  rows?: (string | number | null | undefined)[][],
+  sheetName = 'البيانات'
+) {
+  // الشكل القديم: exportToExcel(records, filename)
+  if (Array.isArray(filenameOrRecords)) {
+    const records = filenameOrRecords
+    const filename = headersOrFilename as string
+    if (records.length === 0) return
+    const hdrs = Object.keys(records[0])
+    const rws = records.map(r => hdrs.map(h => r[h] ?? ''))
+    return _exportToExcel(filename, hdrs, rws, 'البيانات')
+  }
+  // الشكل الجديد: exportToExcel(filename, headers, rows, sheetName?)
+  return _exportToExcel(filenameOrRecords, headersOrFilename as string[], rows!, sheetName)
+}
+
+async function _exportToExcel(
   filename: string,
   headers: string[],
   rows: (string | number | null | undefined)[][],

@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useSuppliers, useUpsertSupplier, useDeleteSupplier } from '@/hooks/useSuppliers'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
-import { formatNumber, formatDate, todayISO } from '@/lib/utils'
+import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import type { Supplier } from '@/types'
 import { cn } from '@/lib/utils'
@@ -147,13 +147,15 @@ export function SuppliersDashboard() {
             <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">أعلى الموردين من حيث المشتريات (90 يوم)</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={180}>
+                {(() => { const cs = getChartStyle(); return (
                 <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-                  <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المشتريات']} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: cs.tickColor }} />
+                  <YAxis tick={{ fontSize: 11, fill: cs.tickColor }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المشتريات']} />
                   <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
                 </BarChart>
+                )})()}
               </ResponsiveContainer>
             </CardContent>
           </Card>

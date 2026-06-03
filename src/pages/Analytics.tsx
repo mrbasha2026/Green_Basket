@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
-import { formatNumber, todayISO, monthName } from '@/lib/utils'
+import { formatNumber, todayISO, monthName, getChartStyle } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { TrendingUp, ShoppingCart, RotateCcw, FileText, Package, Users, Truck, BarChart2, FileDown, Trash2 } from 'lucide-react'
 
@@ -197,6 +197,7 @@ export default function Analytics() {
       </div>
 
       {/* Monthly comparison chart */}
+      {(() => { const cs = getChartStyle(); return (
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">مقارنة المبيعات والمشتريات والأرباح (آخر 12 شهر)</CardTitle>
@@ -204,14 +205,14 @@ export default function Analytics() {
         <CardContent>
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={monthlyChart} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={tickFmt} />
-              <Tooltip formatter={(v: number, name: string) => [
+              <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: cs.tickColor }} />
+              <YAxis tick={{ fontSize: 11, fill: cs.tickColor }} tickFormatter={tickFmt} />
+              <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number, name: string) => [
                 `${formatNumber(v)} ر.س`,
                 name === 'sales' ? 'مبيعات' : name === 'purchases' ? 'مشتريات' : 'ربح'
               ]} />
-              <Legend formatter={(v) => v === 'sales' ? 'مبيعات' : v === 'purchases' ? 'مشتريات' : 'ربح'} />
+              <Legend formatter={(v) => v === 'sales' ? 'مبيعات' : v === 'purchases' ? 'مشتريات' : 'ربح'} wrapperStyle={{ color: cs.tickColor }} />
               <Area type="monotone" dataKey="profit" fill="#dcfce7" stroke="#16a34a" strokeWidth={2} dot={false} name="profit" />
               <Line type="monotone" dataKey="sales" stroke="#16a34a" strokeWidth={2} dot={false} name="sales" />
               <Line type="monotone" dataKey="purchases" stroke="#2563eb" strokeWidth={2} dot={false} name="purchases" strokeDasharray="5 3" />
@@ -219,8 +220,10 @@ export default function Analytics() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+      )})()}
 
       {/* Bottom charts row */}
+      {(() => { const cs = getChartStyle(); return (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Top Customers */}
         <Card>
@@ -228,10 +231,10 @@ export default function Analytics() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topCustomersChart} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} width={70} />
-                <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
+                <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} width={70} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#16a34a" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -244,10 +247,10 @@ export default function Analytics() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topSuppliersChart} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} width={70} />
-                <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
+                <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} width={70} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#2563eb" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -260,16 +263,17 @@ export default function Analytics() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topProductsSales} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} width={70} />
-                <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
+                <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} width={70} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
+      )})()}
 
       {/* Monthly breakdown table */}
       <Card>

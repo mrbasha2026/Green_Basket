@@ -14,7 +14,9 @@ import { useProducts } from '@/hooks/useProducts'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import { cn } from '@/lib/utils'
-import { FileDown, Printer, Users, Truck, Search } from 'lucide-react'
+import { FileDown, Printer, Users, Truck, Search, ShoppingCart, TrendingUp, Package, Trash2 } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Link } from 'react-router-dom'
 
 function getMonthStart() {
   const d = new Date(todayISO() + 'T12:00:00')
@@ -39,6 +41,7 @@ export default function AccountStatement() {
   const [fromDate, setFromDate] = useState(getMonthStart())
   const [toDate, setToDate] = useState(todayISO())
   const [productFilter, setProductFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
   const [applied, setApplied] = useState(false)
   const printRef = useRef<HTMLDivElement>(null)
 
@@ -89,8 +92,10 @@ export default function AccountStatement() {
         })
     }
 
-    return result.sort((a, b) => a.date.localeCompare(b.date))
-  }, [applied, partyId, partyType, sales, purchases, productFilter])
+    return result
+      .filter(r => !typeFilter || r.type === typeFilter)
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [applied, partyId, partyType, sales, purchases, productFilter, typeFilter])
 
   // Running balance
   const rowsWithBalance = useMemo(() => {
@@ -136,9 +141,23 @@ export default function AccountStatement() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold">كشف الحساب</h1>
-        <p className="text-sm text-muted-foreground">حركات العميل أو المورد مع الرصيد المتراكم</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold">كشف الحساب</h1>
+          <p className="text-sm text-muted-foreground">حركات العميل أو المورد مع الرصيد المتراكم</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {[
+            { to: '/purchases', label: 'مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/20' },
+            { to: '/sales', label: 'مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/20' },
+            { to: '/waste', label: 'هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/20' },
+            { to: '/inventory', label: 'مخزون', icon: Package, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
+          ].map(a => (
+            <Link key={a.to} to={a.to} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-colors ${a.color}`}>
+              <a.icon className="w-3.5 h-3.5" />{a.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -168,6 +187,26 @@ export default function AccountStatement() {
             <div className="space-y-1 min-w-40">
               <Label className="text-xs">فلتر الصنف</Label>
               <Combobox options={[{ value: '', label: 'كل الأصناف' }, ...productOptions]} value={productFilter} onValueChange={setProductFilter} placeholder="كل الأصناف" />
+            </div>
+            <div className="space-y-1 min-w-36">
+              <Label className="text-xs">نوع المعاملة</Label>
+              <Select value={typeFilter} onValueChange={v => setTypeFilter(v ?? '')}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="كل الأنواع" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">كل الأنواع</SelectItem>
+                  {partyType === 'customer' ? (
+                    <>
+                      <SelectItem value="بيع">مبيعات</SelectItem>
+                      <SelectItem value="مرتجع مبيعات">مرتجعات مبيعات</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="شراء">مشتريات</SelectItem>
+                      <SelectItem value="مرتجع مشتريات">مرتجعات مشتريات</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">الفترة</Label>
