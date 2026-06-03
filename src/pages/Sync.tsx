@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,8 +12,15 @@ import { useSyncLogs, useSyncPendingReview, useTriggerSync, useDeleteSheetDataBy
 import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/utils'
 import type { SyncLog } from '@/types'
-import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2 } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2, ShoppingCart, TrendingUp, Package } from 'lucide-react'
 import { monthName, todayISO } from '@/lib/utils'
+
+const QUICK_ACTIONS = [
+  { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/15' },
+  { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/15' },
+  { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/15' },
+  { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-muted/50 text-foreground border-border hover:bg-muted' },
+]
 
 // ── Per-month spreadsheet config stored in localStorage ──────────────────────
 const CONFIG_KEY = 'gb_monthly_sheets'
@@ -107,14 +115,12 @@ export default function Sync() {
     if (pRows && pRows.length > 0) {
       const byDate = new Map<string, string[]>()
       pRows.forEach(r => { const ids = byDate.get(r.date) ?? []; ids.push(r.id); byDate.set(r.date, ids) })
+      // استعلام عداد واحد مرة واحدة ثم نزيده في الذاكرة
+      const { data: lastP } = await supabase.from('purchases').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'PIG-%').order('created_at', { ascending: false }).limit(1)
+      let pCounter = parseInt((lastP?.[0]?.invoice_number ?? 'PIG-00000').replace('PIG-', '')) + 1
       for (const [date, ids] of byDate) {
         const { data: existing } = await supabase.from('purchases').select('invoice_number').eq('source', 'google_sheet').eq('date', date).not('invoice_number', 'is', null).limit(1)
-        let inv = existing?.[0]?.invoice_number
-        if (!inv) {
-          const { data: last } = await supabase.from('purchases').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'PIG-%').order('created_at', { ascending: false }).limit(1)
-          const lastNum = parseInt((last?.[0]?.invoice_number ?? 'PIG-00000').replace('PIG-', '')) + 1
-          inv = `PIG-${String(lastNum).padStart(5, '0')}`
-        }
+        const inv = existing?.[0]?.invoice_number ?? `PIG-${String(pCounter++).padStart(5, '0')}`
         await supabase.from('purchases').update({ invoice_number: inv }).in('id', ids)
       }
     }
@@ -126,15 +132,13 @@ export default function Sync() {
     if (sRows && sRows.length > 0) {
       const byDayCustomer = new Map<string, string[]>()
       sRows.forEach(r => { const k = `${r.date}__${r.customer_id}`; const ids = byDayCustomer.get(k) ?? []; ids.push(r.id); byDayCustomer.set(k, ids) })
+      // استعلام عداد واحد مرة واحدة ثم نزيده في الذاكرة
+      const { data: lastS } = await supabase.from('sales').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'SIG-%').order('created_at', { ascending: false }).limit(1)
+      let sCounter = parseInt((lastS?.[0]?.invoice_number ?? 'SIG-00000').replace('SIG-', '')) + 1
       for (const [key, ids] of byDayCustomer) {
         const [date, customerId] = key.split('__')
         const { data: existing } = await supabase.from('sales').select('invoice_number').eq('source', 'google_sheet').eq('date', date).eq('customer_id', customerId).not('invoice_number', 'is', null).limit(1)
-        let inv = existing?.[0]?.invoice_number
-        if (!inv) {
-          const { data: last } = await supabase.from('sales').select('invoice_number').not('invoice_number', 'is', null).like('invoice_number', 'SIG-%').order('created_at', { ascending: false }).limit(1)
-          const lastNum = parseInt((last?.[0]?.invoice_number ?? 'SIG-00000').replace('SIG-', '')) + 1
-          inv = `SIG-${String(lastNum).padStart(5, '0')}`
-        }
+        const inv = existing?.[0]?.invoice_number ?? `SIG-${String(sCounter++).padStart(5, '0')}`
         await supabase.from('sales').update({ invoice_number: inv }).in('id', ids)
       }
     }
@@ -174,6 +178,15 @@ export default function Sync() {
 
   return (
     <div className="space-y-6">
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {QUICK_ACTIONS.map(a => (
+          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${a.color}`}>
+            <a.icon className="w-4 h-4 shrink-0" />{a.label}
+          </Link>
+        ))}
+      </div>
+
       {/* Status card */}
       <Card>
         <CardContent className="pt-5">
@@ -199,10 +212,36 @@ export default function Sync() {
       {/* Per-month configuration + sync buttons */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Settings2 className="w-4 h-4" />
-            إعداد ومزامنة ملفات Google Sheets الشهرية
-          </CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Settings2 className="w-4 h-4" />
+              إعداد ومزامنة ملفات Google Sheets الشهرية
+            </CardTitle>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={syncing || isDeleting}
+                className="gap-1.5 h-8 text-xs"
+                onClick={async () => {
+                  const configured = monthList.filter(({ key }) => sheetsConfig[key])
+                  if (configured.length === 0) { toast.error('أدخل Spreadsheet ID لشهر واحد على الأقل'); return }
+                  for (const { key } of configured) {
+                    await handleSyncMonth(key)
+                  }
+                }}>
+                <RefreshCw className="w-3.5 h-3.5" />مزامنة الكل
+              </Button>
+              <Button size="sm" variant="outline" disabled={syncing || isDeleting}
+                className="gap-1.5 h-8 text-xs text-warning border-warning/30 hover:bg-warning/10"
+                onClick={async () => {
+                  const configured = monthList.filter(({ key }) => sheetsConfig[key])
+                  if (configured.length === 0) { toast.error('أدخل Spreadsheet ID لشهر واحد على الأقل'); return }
+                  for (const { key } of configured) {
+                    await handleForceSync(key)
+                  }
+                }}>
+                <Trash2 className="w-3.5 h-3.5" />تحديث كامل للكل
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <p className="text-xs text-muted-foreground mb-4">

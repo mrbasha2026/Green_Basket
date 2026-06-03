@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, TrendingUp, Package, BarChart3,
-  Calculator, Trash2, RefreshCw, FileText, Settings, Leaf, LineChart,
+  Calculator, Trash2, RefreshCw, FileText, Settings, Leaf, LineChart, BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -31,6 +31,7 @@ const navItems = [
   { to: '/waste', label: 'الهدر', icon: Trash2 },
   { to: '/sync', label: 'المزامنة', icon: RefreshCw },
   { to: '/reports', label: 'التقارير', icon: FileText },
+  { to: '/account-statement', label: 'كشف الحساب', icon: BookOpen },
   { to: '/settings', label: 'الإعدادات', icon: Settings },
 ]
 

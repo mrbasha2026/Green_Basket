@@ -14,6 +14,7 @@ export function useWaste(filters?: { date?: string; month?: number; year?: numbe
         .from('waste_log')
         .select('*, product:products(*)')
         .order('date', { ascending: false })
+        .limit(50000)
       if (filters?.date) q.eq('date', filters.date)
       if (filters?.month && filters?.year) {
         const from = `${filters.year}-${String(filters.month).padStart(2, '0')}-01`
@@ -38,6 +39,7 @@ export function useWasteByRange(from: string, to: string) {
         .gte('date', from)
         .lte('date', to)
         .order('date', { ascending: false })
+        .limit(50000)
       if (error) throw error
       return data as WasteLog[]
     },

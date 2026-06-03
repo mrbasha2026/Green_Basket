@@ -95,9 +95,8 @@ async function importSales(
     })
   }
   if (rows.length > 0) {
-    await supabaseAdmin
-      .from('sales')
-      .upsert(rows, { onConflict: 'product_id,customer_id,date,source', ignoreDuplicates: true })
+    // Insert without deduplication — duplicates from same sheet run are prevented by force-sync delete
+    await supabaseAdmin.from('sales').insert(rows)
   }
   return rows.length
 }
@@ -123,9 +122,7 @@ async function importPurchases(
     })
   }
   if (rows.length > 0) {
-    await supabaseAdmin
-      .from('purchases')
-      .upsert(rows, { onConflict: 'product_id,date', ignoreDuplicates: true })
+    await supabaseAdmin.from('purchases').insert(rows)
   }
   return rows.length
 }
@@ -148,9 +145,7 @@ async function importWaste(
     })
   }
   if (rows.length > 0) {
-    await supabaseAdmin
-      .from('waste_log')
-      .upsert(rows, { onConflict: 'product_id,date,source', ignoreDuplicates: true })
+    await supabaseAdmin.from('waste_log').insert(rows)
   }
   return rows.length
 }
@@ -245,7 +240,13 @@ export default async function handler(req: Request): Promise<Response> {
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
   if (error || !user) return new Response('Unauthorized', { status: 401 })
 
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
+  let reqSpreadsheetId: string | undefined
+  try {
+    const body = await req.json().catch(() => ({}))
+    reqSpreadsheetId = body?.spreadsheetId
+  } catch {}
+  const spreadsheetId = reqSpreadsheetId || process.env.GOOGLE_SPREADSHEET_ID!
+  if (!spreadsheetId) return new Response('spreadsheetId missing', { status: 400 })
 
   try {
     const result = await syncSheets(spreadsheetId)

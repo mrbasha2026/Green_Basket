@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
-import { TrendingUp, ShoppingCart, Trash2, DollarSign, AlertTriangle, Package, BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { TrendingUp, ShoppingCart, Trash2, DollarSign, AlertTriangle, Package, BarChart3, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts'
@@ -19,29 +18,30 @@ function getMonthStart() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-function KpiCard({ title, value, unit, sub, icon: Icon, color, trend }: {
+function KpiCard({ title, value, unit, sub, icon: Icon, gradient, trend }: {
   title: string; value: number; unit?: string; sub?: string
-  icon: React.ElementType; color: string; trend?: number
+  icon: React.ElementType; gradient: string; trend?: number
 }) {
   return (
-    <Card className="relative overflow-hidden">
-      <CardContent className="pt-5">
+    <Card className="relative overflow-hidden border-0 shadow-sm">
+      <div className={`absolute inset-0 opacity-5 ${gradient}`} />
+      <CardContent className="pt-5 relative">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground mb-1">{title}</p>
-            <p className="text-2xl font-bold text-foreground truncate">
+            <p className="text-xs text-muted-foreground mb-1.5 font-medium">{title}</p>
+            <p className="text-2xl font-bold text-foreground tabular-nums">
               {formatNumber(value)}
               {unit && <span className="text-sm font-normal text-muted-foreground mr-1">{unit}</span>}
             </p>
             {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
             {trend !== undefined && (
-              <div className={`flex items-center gap-1 mt-1 text-xs font-medium ${trend >= 0 ? 'text-success' : 'text-danger'}`}>
-                {trend >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+              <div className={`flex items-center gap-1 mt-1.5 text-xs font-semibold ${trend >= 0 ? 'text-success' : 'text-danger'}`}>
+                {trend >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
                 {Math.abs(trend).toFixed(1)}%
               </div>
             )}
           </div>
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${gradient}`}>
             <Icon className="w-5 h-5 text-white" />
           </div>
         </div>
@@ -78,7 +78,6 @@ export default function Dashboard() {
 
   const lowStockItems = useMemo(() => (inventory ?? []).filter(i => i.closing_stock_kg > 0 && i.closing_stock_kg < 10), [inventory])
 
-  // Daily chart
   const dailyChart = useMemo(() => {
     const map = new Map<string, { date: string; مبيعات: number; مشتريات: number; ربح: number }>()
     ;(salesRange ?? []).filter(s => s.transaction_type !== 'مرتجع_مبيعات').forEach(s => {
@@ -95,7 +94,6 @@ export default function Dashboard() {
       .map(r => ({ ...r, مبيعات: Math.round(r.مبيعات), مشتريات: Math.round(r.مشتريات), ربح: Math.round(r.ربح) }))
   }, [salesRange, purchasesRange])
 
-  // Top products chart
   const topProductsChart = useMemo(() => {
     const map = new Map<string, { name: string; value: number; profit: number }>()
     ;(salesRange ?? []).filter(s => s.transaction_type !== 'مرتجع_مبيعات').forEach(s => {
@@ -108,7 +106,6 @@ export default function Dashboard() {
       .map(r => ({ ...r, value: Math.round(r.value), profit: Math.round(r.profit) }))
   }, [salesRange])
 
-  // Customer pie
   const customerPie = useMemo(() => {
     const map = new Map<string, { name: string; value: number }>()
     ;(salesRange ?? []).filter(s => s.transaction_type !== 'مرتجع_مبيعات' && s.customer?.name_ar).forEach(s => {
@@ -125,7 +122,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Header + filter */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold">لوحة التحكم</h1>
@@ -134,15 +131,15 @@ export default function Dashboard() {
         <QuickDateFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
       </div>
 
-      {/* Quick links */}
+      {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/15' },
-          { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/15' },
-          { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/15' },
-          { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-muted/50 text-foreground border-border hover:bg-muted' },
+          { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/20' },
+          { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/20' },
+          { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/20' },
+          { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-purple-500/10 text-purple-600 border-purple-200 hover:bg-purple-500/20' },
         ].map(a => (
-          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${a.color}`}>
+          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all shadow-sm ${a.color}`}>
             <a.icon className="w-4 h-4 shrink-0" />{a.label}
           </Link>
         ))}
@@ -154,29 +151,29 @@ export default function Dashboard() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="إجمالي المبيعات" value={totalSales} unit="ر.س" sub={`${invoiceCount} فاتورة`} icon={TrendingUp} color="bg-success" />
-            <KpiCard title="إجمالي المشتريات" value={totalPurchases} unit="ر.س" icon={ShoppingCart} color="bg-blue-500" />
-            <KpiCard title="صافي الربح" value={netProfit} unit="ر.س" sub={`هامش ${marginPct.toFixed(1)}%`} icon={DollarSign} color={netProfit >= 0 ? 'bg-success' : 'bg-danger'} trend={marginPct} />
-            <KpiCard title="مرتجعات المبيعات" value={salesReturns} unit="ر.س" icon={BarChart3} color="bg-warning" />
+            <KpiCard title="إجمالي المبيعات" value={totalSales} unit="ر.س" sub={`${invoiceCount} فاتورة`} icon={TrendingUp} gradient="bg-success" />
+            <KpiCard title="إجمالي المشتريات" value={totalPurchases} unit="ر.س" icon={ShoppingCart} gradient="bg-blue-500" />
+            <KpiCard title="صافي الربح" value={netProfit} unit="ر.س" sub={`هامش ${marginPct.toFixed(1)}%`} icon={DollarSign} gradient={netProfit >= 0 ? 'bg-emerald-500' : 'bg-danger'} trend={marginPct} />
+            <KpiCard title="مرتجعات المبيعات" value={salesReturns} unit="ر.س" icon={BarChart3} gradient="bg-warning" />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="هدر الكميات" value={totalWasteKg} unit="كج" sub={`${wastePercent.toFixed(1)}% من المشتريات`} icon={Trash2} color={wastePercent > 5 ? 'bg-danger' : 'bg-warning'} />
-            <KpiCard title="أصناف منخفضة" value={lowStockItems.length} sub="أقل من 10 كج" icon={AlertTriangle} color={lowStockItems.length > 0 ? 'bg-danger' : 'bg-success'} />
-            <KpiCard title="فواتير المبيعات" value={invoiceCount} icon={Package} color="bg-purple-500" />
-            <KpiCard title="تكلفة البضاعة" value={totalCOGS} unit="ر.س" icon={DollarSign} color="bg-slate-500" />
+            <KpiCard title="هدر الكميات" value={totalWasteKg} unit="كج" sub={`${wastePercent.toFixed(1)}% من المشتريات`} icon={Trash2} gradient={wastePercent > 5 ? 'bg-danger' : 'bg-orange-400'} />
+            <KpiCard title="أصناف منخفضة" value={lowStockItems.length} sub="أقل من 10 كج" icon={AlertTriangle} gradient={lowStockItems.length > 0 ? 'bg-danger' : 'bg-success'} />
+            <KpiCard title="فواتير المبيعات" value={invoiceCount} icon={Package} gradient="bg-violet-500" />
+            <KpiCard title="تكلفة البضاعة" value={totalCOGS} unit="ر.س" icon={DollarSign} gradient="bg-slate-500" />
           </div>
         </>
       )}
 
       {/* Low stock alert */}
       {lowStockItems.length > 0 && (
-        <div className="bg-danger/10 border border-danger/30 rounded-xl p-4 flex gap-3">
+        <div className="bg-danger/5 border border-danger/20 rounded-xl p-4 flex gap-3">
           <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-danger mb-2">أصناف تحتاج تجديد فوري</p>
             <div className="flex flex-wrap gap-2">
               {lowStockItems.map(i => (
-                <span key={i.id} className="text-xs bg-danger/20 text-danger px-2.5 py-1 rounded-lg font-medium">
+                <span key={i.id} className="text-xs bg-danger/10 text-danger px-2.5 py-1 rounded-lg font-medium border border-danger/20">
                   {i.product?.name_ar} — {formatNumber(i.closing_stock_kg)} كج
                 </span>
               ))}
@@ -185,25 +182,34 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Charts */}
+      {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Daily line chart */}
-        <Card className="lg:col-span-2">
+        {/* Daily chart */}
+        <Card className="lg:col-span-2 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">المبيعات والمشتريات والأرباح اليومية</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" />
+              المبيعات والمشتريات والأرباح اليومية
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? <Skeleton className="h-56" /> : dailyChart.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات في هذه الفترة</p>
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <RefreshCw className="w-8 h-8 opacity-30" />
+                <p className="text-sm">لا توجد بيانات في هذه الفترة</p>
+              </div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={230}>
                 <LineChart data={dailyChart} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={v => v.substring(5)} />
-                  <YAxis tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
-                  <Tooltip formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name]} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={v => v.substring(5)} />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                    formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name]}
+                  />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="مبيعات" stroke="#16a34a" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="مبيعات" stroke="#16a34a" strokeWidth={2.5} dot={false} />
                   <Line type="monotone" dataKey="مشتريات" stroke="#2563eb" strokeWidth={2} dot={false} strokeDasharray="4 2" />
                   <Line type="monotone" dataKey="ربح" stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
                 </LineChart>
@@ -213,31 +219,40 @@ export default function Dashboard() {
         </Card>
 
         {/* Customer pie */}
-        <Card>
+        <Card className="shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">توزيع المبيعات على العملاء</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Package className="w-4 h-4 text-primary" />
+              توزيع المبيعات على العملاء
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? <Skeleton className="h-56" /> : customerPie.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <Package className="w-8 h-8 opacity-30" />
+                <p className="text-sm">لا توجد بيانات</p>
+              </div>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
-                    <Pie data={customerPie} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
+                    <Pie data={customerPie} cx="50%" cy="50%" innerRadius={42} outerRadius={68} dataKey="value" paddingAngle={3}>
                       {customerPie.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                     </Pie>
-                    <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المبيعات']} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                      formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المبيعات']}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="space-y-1.5 mt-1">
+                <div className="space-y-1.5 mt-2">
                   {customerPie.slice(0, 5).map((c, i) => (
                     <div key={c.name} className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                         <span className="text-muted-foreground truncate">{c.name}</span>
                       </div>
-                      <span className="font-medium shrink-0 mr-2">{formatNumber(c.value)}</span>
+                      <span className="font-semibold shrink-0 mr-2 tabular-nums">{formatNumber(c.value)}</span>
                     </div>
                   ))}
                 </div>
@@ -249,17 +264,23 @@ export default function Dashboard() {
 
       {/* Top products bar chart */}
       {topProductsChart.length > 0 && (
-        <Card>
+        <Card className="shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">أعلى الأصناف مبيعاً (ر.س)</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" />
+              أعلى الأصناف مبيعاً (ر.س)
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={topProductsChart} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} tickFormatter={v => String(v).length > 8 ? String(v).substring(0, 8) + '…' : v} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
-                <Tooltip formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name === 'value' ? 'الإيراد' : 'الربح']} />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={v => String(v).length > 8 ? String(v).substring(0, 8) + '…' : v} />
+                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
+                <Tooltip
+                  contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                  formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name === 'value' ? 'الإيراد' : 'الربح']}
+                />
                 <Legend formatter={(v) => v === 'value' ? 'الإيراد' : 'الربح'} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="value" fill="#16a34a" radius={[4, 4, 0, 0]} name="value" maxBarSize={40} />
                 <Bar dataKey="profit" fill="#f59e0b" radius={[4, 4, 0, 0]} name="profit" maxBarSize={40} />
@@ -269,20 +290,20 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Recent quick summary table */}
+      {/* Daily summary table */}
       {dailyChart.length > 0 && (
-        <Card>
+        <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">ملخص يومي</CardTitle>
-              <Link to="/analytics" className="text-xs text-primary hover:underline">عرض التفاصيل ←</Link>
+              <Link to="/analytics" className="text-xs text-primary hover:underline font-medium">عرض التحليلات ←</Link>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="max-h-60 overflow-auto rounded-lg border border-border">
+            <div className="overflow-auto max-h-[320px] rounded-lg border border-border">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-muted/40">
-                  <tr className="border-b border-border">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-border bg-muted/80">
                     {['التاريخ', 'المبيعات', 'المشتريات', 'الربح'].map(h => (
                       <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>
                     ))}
@@ -290,11 +311,11 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {[...dailyChart].reverse().map((row, i) => (
-                    <tr key={row.date} className={`border-b border-border/40 hover:bg-muted/20 ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                    <tr key={row.date} className={`border-b border-border/40 hover:bg-primary/5 transition-colors ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{formatDate(row.date)}</td>
-                      <td className="px-3 py-2 text-xs font-medium text-success">{formatNumber(row.مبيعات)}</td>
-                      <td className="px-3 py-2 text-xs font-medium text-primary">{formatNumber(row.مشتريات)}</td>
-                      <td className={`px-3 py-2 text-xs font-semibold ${row.ربح >= 0 ? 'text-success' : 'text-danger'}`}>{formatNumber(row.ربح)}</td>
+                      <td className="px-3 py-2 text-xs font-semibold text-success tabular-nums">{formatNumber(row.مبيعات)}</td>
+                      <td className="px-3 py-2 text-xs font-semibold text-blue-600 tabular-nums">{formatNumber(row.مشتريات)}</td>
+                      <td className={`px-3 py-2 text-xs font-bold tabular-nums ${row.ربح >= 0 ? 'text-success' : 'text-danger'}`}>{formatNumber(row.ربح)}</td>
                     </tr>
                   ))}
                 </tbody>

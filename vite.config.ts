@@ -35,9 +35,18 @@ export default defineConfig(({ mode }) => {
             }
 
             try {
+              // Read request body to get spreadsheetId
+              let rawBody = ''
+              await new Promise<void>(resolve => {
+                req.on('data', (chunk: Buffer) => { rawBody += chunk.toString() })
+                req.on('end', resolve)
+              })
+              let reqSpreadsheetId: string | undefined
+              try { reqSpreadsheetId = rawBody ? JSON.parse(rawBody)?.spreadsheetId : undefined } catch {}
+
               const { syncSheets } = await server.ssrLoadModule('/api/sync-sheets.ts')
-              const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
-              if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID غير محدد في .env.local')
+              const spreadsheetId = reqSpreadsheetId || process.env.GOOGLE_SPREADSHEET_ID
+              if (!spreadsheetId) throw new Error('spreadsheetId غير محدد')
 
               const result = await syncSheets(spreadsheetId)
               res.setHeader('Content-Type', 'application/json')

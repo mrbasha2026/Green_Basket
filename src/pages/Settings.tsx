@@ -36,7 +36,7 @@ type Section =
 function CompanyTab() {
   const { data: saved } = useSiteSettings()
   const { mutateAsync: upsert, isPending } = useUpsertSiteSettings()
-  const [form, setForm] = useState({ name: '', tagline: '', phone: '', address: '', tax_number: '', vat_rate: '15', currency: 'SAR', invoice_prefix_sales: 'SIM', invoice_prefix_purchases: 'PIM', payment_terms: '', logo: '' })
+  const [form, setForm] = useState({ name: '', tagline: '', phone: '', address: '', tax_number: '', vat_rate: '15', currency: 'SAR', invoice_prefix_sales: 'SIM', invoice_prefix_purchases: 'PIM', invoice_prefix_sales_sheet: 'SIG', invoice_prefix_purchases_sheet: 'PIG', invoice_prefix_stocktake: 'STK', invoice_prefix_returns_sales: 'RTN-S', invoice_prefix_returns_purchases: 'RTN-P', payment_terms: '', logo: '' })
   const logoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -89,10 +89,20 @@ function CompanyTab() {
       <div>
         <h3 className="text-base font-semibold mb-4">إعدادات الفواتير</h3>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1"><Label className="text-xs">بادئة فواتير المبيعات</Label>
+          <div className="space-y-1"><Label className="text-xs">بادئة مبيعات يدوية</Label>
             <Input value={form.invoice_prefix_sales} onChange={e => setForm(p => ({ ...p, invoice_prefix_sales: e.target.value }))} placeholder="SIM" dir="ltr" className="h-9 font-mono" /></div>
-          <div className="space-y-1"><Label className="text-xs">بادئة فواتير المشتريات</Label>
+          <div className="space-y-1"><Label className="text-xs">بادئة مشتريات يدوية</Label>
             <Input value={form.invoice_prefix_purchases} onChange={e => setForm(p => ({ ...p, invoice_prefix_purchases: e.target.value }))} placeholder="PIM" dir="ltr" className="h-9 font-mono" /></div>
+          <div className="space-y-1"><Label className="text-xs">بادئة مبيعات Sheets</Label>
+            <Input value={form.invoice_prefix_sales_sheet} onChange={e => setForm(p => ({ ...p, invoice_prefix_sales_sheet: e.target.value }))} placeholder="SIG" dir="ltr" className="h-9 font-mono" /></div>
+          <div className="space-y-1"><Label className="text-xs">بادئة مشتريات Sheets</Label>
+            <Input value={form.invoice_prefix_purchases_sheet} onChange={e => setForm(p => ({ ...p, invoice_prefix_purchases_sheet: e.target.value }))} placeholder="PIG" dir="ltr" className="h-9 font-mono" /></div>
+          <div className="space-y-1"><Label className="text-xs">بادئة الجرد</Label>
+            <Input value={form.invoice_prefix_stocktake} onChange={e => setForm(p => ({ ...p, invoice_prefix_stocktake: e.target.value }))} placeholder="STK" dir="ltr" className="h-9 font-mono" /></div>
+          <div className="space-y-1"><Label className="text-xs">بادئة مرتجعات المبيعات</Label>
+            <Input value={form.invoice_prefix_returns_sales} onChange={e => setForm(p => ({ ...p, invoice_prefix_returns_sales: e.target.value }))} placeholder="RTN-S" dir="ltr" className="h-9 font-mono" /></div>
+          <div className="space-y-1"><Label className="text-xs">بادئة مرتجعات المشتريات</Label>
+            <Input value={form.invoice_prefix_returns_purchases} onChange={e => setForm(p => ({ ...p, invoice_prefix_returns_purchases: e.target.value }))} placeholder="RTN-P" dir="ltr" className="h-9 font-mono" /></div>
           <div className="space-y-1"><Label className="text-xs">شروط الدفع الافتراضية</Label>
             <Input value={form.payment_terms} onChange={e => setForm(p => ({ ...p, payment_terms: e.target.value }))} placeholder="مثال: 30 يوم" className="h-9" /></div>
         </div>

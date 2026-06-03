@@ -13,11 +13,12 @@ import { DataTable } from '@/components/tables/DataTable'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { Combobox } from '@/components/ui/combobox'
 import { StocktakeSection } from '@/components/inventory/StocktakeSection'
+import { useApprovedStocktakeItems } from '@/hooks/useStocktake'
 import { useEarliestInventory, useInventoryRange, useInventoryDaily, useInventoryUpTo, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWasteByRange } from '@/hooks/useWaste'
-import { useAllProducts, useUpsertProduct } from '@/hooks/useProducts'
+import { useAllProducts, useUpsertProduct, useDeleteProduct, useToggleProductActive } from '@/hooks/useProducts'
 import { useProducts } from '@/hooks/useProducts'
 import { exportToExcel } from '@/lib/excel'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
@@ -32,7 +33,7 @@ interface InventoryBalance {
   opening_stock_kg: number; purchased_weight: number; sales_kg: number
   waste_kg: number; closing_stock_kg: number; weighted_avg_cost: number; stock_value: number
 }
-type MovType = 'شراء' | 'بيع' | 'هدر' | 'افتتاحي' | 'مرتجع مشتريات' | 'مرتجع مبيعات'
+type MovType = 'شراء' | 'بيع' | 'هدر' | 'افتتاحي' | 'مرتجع مشتريات' | 'مرتجع مبيعات' | 'جرد'
 interface MovementRow {
   id: string; date: string; product_id: string; product_name: string
   category: string; type: MovType; qty: number; cost_per_unit: number; total: number
@@ -133,10 +134,11 @@ export default function Inventory() {
   const { data: movSales, isLoading: msL } = useSalesByRange(rFrom, rTo)
   const { data: movWaste, isLoading: mwL } = useWasteByRange(rFrom, rTo)
   const { data: invRange, isLoading: irL } = useInventoryRange(rFrom, rTo)
+  const { data: movStocktake, isLoading: stL } = useApprovedStocktakeItems(rFrom, rTo)
   const { data: latestCosts } = useLatestPurchaseCosts(appliedRTo ?? todayISO())
 
   const isBalLoading = !!appliedFrom && (eL || pbL || sbL || wbL || pL || sL || wL)
-  const isMovLoading = !!appliedRFrom && (mpL || msL || mwL || irL)
+  const isMovLoading = !!appliedRFrom && (mpL || msL || mwL || irL || stL)
 
   // ── Opening map builder ──────────────────────────────────────────────────────
   function buildOpeningMap(
@@ -276,13 +278,19 @@ export default function Inventory() {
       const wac = latestCosts?.[w.product_id] ?? 0
       rows.push({ id: `w_${w.id}`, date: w.date, product_id: w.product_id, product_name: w.product?.name_ar ?? '—', category: w.product?.category ?? '', type: 'هدر', qty: w.waste_kg, cost_per_unit: wac, total: w.waste_kg * wac })
     })
+    ;(movStocktake ?? []).forEach(st => {
+      if (st.actual_qty === null || st.actual_qty === undefined) return
+      const wac = latestCosts?.[st.product_id] ?? 0
+      const prod = st.product as { name_ar: string; category: string } | undefined
+      rows.push({ id: `st_${st.id}`, date: st.session_date, product_id: st.product_id, product_name: prod?.name_ar ?? '—', category: prod?.category ?? '', type: 'جرد', qty: st.actual_qty, cost_per_unit: wac, total: st.actual_qty * wac })
+    })
     return rows.filter(r => {
       if (reportProduct && r.product_id !== reportProduct) return false
       if (reportType && r.type !== reportType) return false
       if (reportCategory && r.category !== reportCategory) return false
       return true
     }).sort((a, b) => b.date.localeCompare(a.date))
-  }, [appliedRFrom, invRange, movPurchases, movSales, movWaste, latestCosts, products, reportProduct, reportType, reportCategory])
+  }, [appliedRFrom, invRange, movPurchases, movSales, movWaste, movStocktake, latestCosts, products, reportProduct, reportType, reportCategory])
 
   // ── Columns ───────────────────────────────────────────────────────────────
   const balCols = useMemo<ColumnDef<InventoryBalance>[]>(() => [
@@ -304,7 +312,7 @@ export default function Inventory() {
     {
       accessorKey: 'type', header: 'النوع', cell: ({ getValue }) => {
         const t = getValue() as MovType
-        const cls = t === 'شراء' ? 'bg-primary/15 text-primary' : t === 'بيع' ? 'bg-danger/15 text-danger' : t === 'هدر' ? 'bg-warning/15 text-warning' : t === 'مرتجع مشتريات' ? 'bg-warning/15 text-warning' : t === 'مرتجع مبيعات' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
+        const cls = t === 'شراء' ? 'bg-primary/15 text-primary' : t === 'بيع' ? 'bg-danger/15 text-danger' : t === 'هدر' ? 'bg-warning/15 text-warning' : t === 'مرتجع مشتريات' ? 'bg-warning/15 text-warning' : t === 'مرتجع مبيعات' ? 'bg-success/15 text-success' : t === 'جرد' ? 'bg-violet-500/15 text-violet-700' : 'bg-muted text-muted-foreground'
         return <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', cls)}>{t}</span>
       }
     },
@@ -608,7 +616,7 @@ export default function Inventory() {
                 </Select>
                 <Select value={reportType} onValueChange={v => setReportType(v ?? '')}>
                   <SelectTrigger className="w-40 h-9 text-sm"><SelectValue placeholder="كل الأنواع" /></SelectTrigger>
-                  <SelectContent><SelectItem value="">كل الأنواع</SelectItem><SelectItem value="افتتاحي">رصيد افتتاحي</SelectItem><SelectItem value="شراء">مشتريات</SelectItem><SelectItem value="مرتجع مشتريات">مرتجع مشتريات</SelectItem><SelectItem value="بيع">مبيعات</SelectItem><SelectItem value="مرتجع مبيعات">مرتجع مبيعات</SelectItem><SelectItem value="هدر">هدر</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="">كل الأنواع</SelectItem><SelectItem value="افتتاحي">رصيد افتتاحي</SelectItem><SelectItem value="شراء">مشتريات</SelectItem><SelectItem value="مرتجع مشتريات">مرتجع مشتريات</SelectItem><SelectItem value="بيع">مبيعات</SelectItem><SelectItem value="مرتجع مبيعات">مرتجع مبيعات</SelectItem><SelectItem value="هدر">هدر</SelectItem><SelectItem value="جرد">جرد مخزون</SelectItem></SelectContent>
                 </Select>
                 <Button onClick={() => { setAppliedRFrom(reportFrom); setAppliedRTo(reportTo) }} className="gap-1.5 h-9">
                   <Search className="w-3.5 h-3.5" />عرض
@@ -666,48 +674,96 @@ export default function Inventory() {
 function ProductsSection() {
   const { data: products } = useAllProducts()
   const { mutateAsync: upsert, isPending } = useUpsertProduct()
+  const { mutateAsync: toggleActive } = useToggleProductActive()
+  const { mutateAsync: deleteProduct } = useDeleteProduct()
   const [editProduct, setEditProduct] = useState<Partial<Product> | null>(null)
   const [open, setOpen] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
 
   async function handleSave() {
     if (!editProduct?.name_ar) { toast.error('اسم الصنف مطلوب'); return }
     try { await upsert(editProduct); toast.success('تم الحفظ'); setOpen(false); setEditProduct(null) } catch { toast.error('حدث خطأ') }
   }
 
+  const filtered = (products ?? []).filter(p => {
+    if (!showInactive && !p.is_active) return false
+    if (search) return p.name_ar.includes(search) || (p.name_en ?? '').toLowerCase().includes(search.toLowerCase())
+    return true
+  })
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{products?.length ?? 0} صنف مسجّل</p>
-        <Button size="sm" className="gap-2" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار' }); setOpen(true) }}>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-40 text-sm" />
+          <button onClick={() => setShowInactive(v => !v)} className={cn('text-xs px-3 py-1.5 rounded-lg border transition-colors', showInactive ? 'bg-muted text-foreground border-border' : 'bg-background text-muted-foreground border-border hover:bg-muted')}>
+            {showInactive ? 'إخفاء الموقوفة' : 'إظهار الموقوفة'}
+          </button>
+          <span className="text-xs text-muted-foreground">{filtered.length} صنف</span>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار', is_active: true }); setOpen(true) }}>
           <Plus className="w-3.5 h-3.5" />إضافة صنف
         </Button>
       </div>
+
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditProduct(null) }}>
         <DialogContent><DialogHeader><DialogTitle>{editProduct?.id ? 'تعديل صنف' : 'إضافة صنف جديد'}</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1"><Label>الاسم بالعربية</Label><Input value={editProduct?.name_ar ?? ''} onChange={e => setEditProduct(p => ({ ...p, name_ar: e.target.value }))} /></div>
-            <div className="space-y-1"><Label>الاسم بالإنجليزية</Label><Input value={String(editProduct?.name_en ?? '')} onChange={e => setEditProduct(p => ({ ...p, name_en: e.target.value }))} dir="ltr" /></div>
+            <div className="space-y-1"><Label>الاسم بالعربية <span className="text-danger">*</span></Label>
+              <Input value={editProduct?.name_ar ?? ''} onChange={e => setEditProduct(p => ({ ...p, name_ar: e.target.value }))} /></div>
+            <div className="space-y-1"><Label>الاسم بالإنجليزية</Label>
+              <Input value={String(editProduct?.name_en ?? '')} onChange={e => setEditProduct(p => ({ ...p, name_en: e.target.value }))} dir="ltr" /></div>
             <div className="space-y-1"><Label>الفئة</Label>
               <Select value={editProduct?.category ?? 'خضار'} onValueChange={v => v && setEditProduct(p => ({ ...p, category: v as Product['category'] }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="خضار">خضار</SelectItem><SelectItem value="فاكهة">فاكهة</SelectItem><SelectItem value="أعشاب">أعشاب</SelectItem></SelectContent>
-              </Select>
+              </Select></div>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
             </div>
-            <Button onClick={handleSave} disabled={isPending} className="w-full">{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
           </div>
         </DialogContent>
       </Dialog>
-      <div className="rounded-xl border border-border overflow-hidden">
+
+      {/* Delete confirm dialog */}
+      <Dialog open={!!deleteId} onOpenChange={o => !o && setDeleteId(null)}>
+        <DialogContent className="max-w-sm"><DialogHeader><DialogTitle>تعطيل الصنف</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">سيتم تعطيل الصنف ولن يظهر في الفواتير الجديدة. السجلات القديمة لن تتأثر.</p>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>إلغاء</Button>
+            <Button variant="destructive" size="sm" onClick={async () => { if (deleteId) { await deleteProduct(deleteId); toast.success('تم تعطيل الصنف'); setDeleteId(null) } }}>تعطيل</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
         <table className="w-full text-sm">
-          <thead><tr className="bg-muted/30 border-b border-border">{['الاسم','الإنجليزية','الفئة','الحالة',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+          <thead className="sticky top-0 bg-muted/40 z-10">
+            <tr className="border-b border-border">
+              {['الاسم','الإنجليزية','الفئة','الحالة','إجراءات'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}
+            </tr>
+          </thead>
           <tbody>
-            {products?.map((p, i) => (
-              <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/20', i % 2 === 1 && 'bg-muted/10')}>
+            {filtered.map((p, i) => (
+              <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/20', i % 2 === 1 && 'bg-muted/10', !p.is_active && 'opacity-60')}>
                 <td className="px-3 py-2 font-medium">{p.name_ar}</td>
                 <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{p.name_en ?? '—'}</td>
                 <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
-                <td className="px-3 py-2"><span className={cn('text-xs font-medium', p.is_active ? 'text-success' : 'text-muted-foreground')}>{p.is_active ? 'نشط' : 'موقوف'}</span></td>
-                <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button></td>
+                <td className="px-3 py-2">
+                  <button onClick={() => toggleActive({ id: p.id, is_active: !p.is_active })}
+                    className={cn('text-xs px-2 py-0.5 rounded font-medium transition-colors', p.is_active ? 'bg-success/15 text-success hover:bg-success/25' : 'bg-muted text-muted-foreground hover:bg-muted/80')}>
+                    {p.is_active ? 'نشط' : 'موقوف'}
+                  </button>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button>
+                    {p.is_active && <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3 h-3" /></Button>}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

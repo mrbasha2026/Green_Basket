@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart, Area } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
@@ -6,7 +7,14 @@ import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
 import { formatNumber, todayISO, monthName } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { TrendingUp, ShoppingCart, RotateCcw, FileText, Package, Users, Truck, BarChart2 } from 'lucide-react'
+import { TrendingUp, ShoppingCart, RotateCcw, FileText, Package, Users, Truck, BarChart2, FileDown, Trash2 } from 'lucide-react'
+
+const QUICK_ACTIONS = [
+  { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/15' },
+  { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/15' },
+  { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/15' },
+  { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-muted/50 text-foreground border-border hover:bg-muted' },
+]
 
 // ── Stat Card ──────────────────────────────────────────────────────────────────
 function StatCard({ title, value, sub, icon: Icon, color = 'primary' }: {
@@ -148,12 +156,29 @@ export default function Analytics() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-bold">الإحصائيات والتحليلات</h1>
           <p className="text-sm text-muted-foreground">مقارنة المبيعات والمشتريات والأرباح</p>
         </div>
-        <QuickDateFilter from={fromDate} to={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+        <div className="flex flex-wrap items-center gap-3">
+          <QuickDateFilter from={fromDate} to={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+          <button onClick={() => {
+            const rows = [...monthlyChart].reverse().map(r => [r.month, r.sales, r.purchases, r.profit])
+            import('@/lib/excel').then(m => m.exportToExcel('إحصائيات.xlsx', ['الشهر','المبيعات','المشتريات','الربح'], rows))
+          }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-muted-foreground hover:bg-muted transition-colors">
+            <FileDown className="w-3.5 h-3.5" />تصدير Excel
+          </button>
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {QUICK_ACTIONS.map(a => (
+          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${a.color}`}>
+            <a.icon className="w-4 h-4 shrink-0" />{a.label}
+          </Link>
+        ))}
       </div>
 
       {/* Stat Cards */}
@@ -180,8 +205,8 @@ export default function Analytics() {
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={monthlyChart} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
+              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={tickFmt} />
               <Tooltip formatter={(v: number, name: string) => [
                 `${formatNumber(v)} ر.س`,
                 name === 'sales' ? 'مبيعات' : name === 'purchases' ? 'مشتريات' : 'ربح'
@@ -204,8 +229,8 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topCustomersChart} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} width={70} />
                 <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#16a34a" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -220,8 +245,8 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topSuppliersChart} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} width={70} />
                 <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#2563eb" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -236,8 +261,8 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topProductsSales} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={tickFmt} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={tickFmt} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} width={70} />
                 <Tooltip formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -250,10 +275,10 @@ export default function Analytics() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">جدول الملخص الشهري (آخر 12 شهر)</CardTitle></CardHeader>
         <CardContent>
-          <div className="overflow-auto">
+          <div className="overflow-auto max-h-[400px] rounded-lg border border-border">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-border bg-muted/80">
                   {['الشهر', 'المبيعات', 'المشتريات', 'الربح الإجمالي', 'هامش الربح'].map(h => (
                     <th key={h} className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">{h}</th>
                   ))}

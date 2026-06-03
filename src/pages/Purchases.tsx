@@ -133,10 +133,12 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
     const file=e.target.files?.[0]; if(!file||!products) return
     try{
       const parsed=await parseExcelFile(file); const newRows:PurchaseFormRow[]=[]; const unmatched:string[]=[]
-      parsed.filter(r=>r['اسم الصنف']&&r['كراتين']).forEach(r=>{
+      parsed.filter(r=>r['اسم الصنف']&&Number(r['كراتين'])>0&&Number(r['السعر/كرتون'])>0).forEach(r=>{
         const prod=findProductLocal(String(r['اسم الصنف']??''))
         if(!prod){unmatched.push(String(r['اسم الصنف']));return}
-        newRows.push({product_id:prod.id,cartons_qty:Number(r['كراتين']??0),price_per_carton:Number(r['السعر/كرتون']??0),weight_per_carton:Number(r['وزن/كرتون(كج)']??0),waste_kg:0})
+        const cartons=Number(r['كراتين']??0); const price=Number(r['السعر/كرتون']??0)
+        if(cartons<=0||price<=0) return
+        newRows.push({product_id:prod.id,cartons_qty:cartons,price_per_carton:price,weight_per_carton:Number(r['وزن/كرتون(كج)']??0),waste_kg:0})
       })
       if(unmatched.length>0) toast.warning(`لم يُطابَق: ${unmatched.join('، ')}`)
       if(newRows.length>0){setRows(prev=>[...prev.filter(r=>r.product_id),...newRows]);toast.success(`تم إضافة ${newRows.length} صنف`)}
@@ -148,6 +150,8 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
   const subtotal=rows.reduce((s,r)=>s+r.cartons_qty*r.price_per_carton,0)
   const grandTotal=subtotal+transportCost
   const totalWeight=rows.reduce((s,r)=>s+r.cartons_qty*r.weight_per_carton,0)
+  const [applyVat,setApplyVat]=useState(false)
+  const siteSettings=(()=>{try{return JSON.parse(localStorage.getItem('gb_site_settings')??'{}')}catch{return{}}})()
 
   async function handleSubmit(){
     const valid=rows.filter(r=>r.product_id&&r.cartons_qty>0)
@@ -222,7 +226,11 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
             <div className="flex items-center gap-2">
               <input ref={drawerImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleDrawerImport}/>
               <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>drawerImportRef.current?.click()}><Upload className="w-3 h-3"/>استيراد Excel</Button>
-              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>downloadTemplate('purchases-template.xlsx',['اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],[['طماطم','10','50','15'],['خيار','5','40','12']])}><FileDown className="w-3 h-3"/>قالب</Button>
+              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>{
+                const rows=(products??[]).map(p=>[p.name_ar,'','',''])
+                exportToExcel(`قالب-مشتريات.xlsx`,['اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],rows)
+                toast.success('تم تحميل القالب')
+              }}><FileDown className="w-3 h-3"/>قالب</Button>
             </div>
           </div>
           <div className="rounded-lg border border-border overflow-hidden">
@@ -250,7 +258,18 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
         <div className="rounded-lg bg-muted/30 border border-border p-4 space-y-1.5 text-sm">
           <div className="flex justify-between"><span className="text-muted-foreground">المجموع الفرعي</span><span className="font-medium">{formatNumber(subtotal)} ر.س</span></div>
           {transportCost>0&&<div className="flex justify-between"><span className="text-muted-foreground">مصاريف النقل</span><span className="font-medium">{formatNumber(transportCost)} ر.س</span></div>}
-          <div className="flex justify-between border-t border-border pt-1.5 font-bold text-base"><span>الإجمالي الكلي</span><span className="text-primary">{formatNumber(grandTotal)} ر.س</span></div>
+          <div className="flex items-center justify-between border-t border-border pt-1.5">
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-base">الإجمالي</span>
+              <button onClick={()=>setApplyVat(v=>!v)} className={cn('text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors',applyVat?'bg-warning/15 text-warning border-warning/30':'bg-muted text-muted-foreground border-border hover:bg-muted/80')}>
+                {applyVat?`ض.ق.م ${Number(siteSettings.vat_rate??15)}% مطبقة`:`إضافة ض.ق.م`}
+              </button>
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-primary text-base">{formatNumber(grandTotal+(applyVat?grandTotal*(Number(siteSettings.vat_rate??15)/100):0))} ر.س</p>
+              {applyVat&&<p className="text-xs text-warning">يشمل ضريبة {formatNumber(grandTotal*(Number(siteSettings.vat_rate??15)/100))} ر.س</p>}
+            </div>
+          </div>
         </div>
         <div id="drawer-purchase-print" style={{display:'none'}}>
           <div style={{background:'#16a34a',color:'#fff',padding:'10px 14px',marginBottom:'12px',borderRadius:'6px'}}>
@@ -262,7 +281,16 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
             <thead><tr style={{background:'#f1f5f9'}}>{['#','الصنف','كراتين','وزن/كرتون','السعر/كرتون','الوزن الكلي','الإجمالي'].map(h=><th key={h} style={{padding:'6px 8px',border:'1px solid #e2e8f0',textAlign:'right'}}>{h}</th>)}</tr></thead>
             <tbody>{rows.filter(r=>r.product_id&&r.cartons_qty>0).map((r,i)=>(<tr key={i}><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',color:'#64748b'}}>{i+1}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',fontWeight:600}}>{products?.find(p=>p.id===r.product_id)?.name_ar}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{r.cartons_qty}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{r.weight_per_carton}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(r.price_per_carton)}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(r.cartons_qty*r.weight_per_carton)}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',fontWeight:600}}>{formatNumber(r.cartons_qty*r.price_per_carton)}</td></tr>))}</tbody>
-            <tfoot>{transportCost>0&&<tr><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>مصاريف النقل</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(transportCost)} ر.س</td></tr>}<tr style={{background:'#dcfce7',fontWeight:'bold'}}><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>الإجمالي</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>{formatNumber(grandTotal)} ر.س</td></tr></tfoot>
+            <tfoot>
+              {transportCost>0&&<tr><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>مصاريف النقل</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(transportCost)} ر.س</td></tr>}
+              {applyVat ? (<>
+                <tr><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>المجموع قبل الضريبة</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(grandTotal)} ر.س</td></tr>
+                <tr style={{background:'#fef3c7'}}><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#d97706',fontWeight:'bold'}}>ضريبة القيمة المضافة ({Number(siteSettings.vat_rate??15)}%)</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#d97706',fontWeight:'bold'}}>{formatNumber(grandTotal*(Number(siteSettings.vat_rate??15)/100))} ر.س</td></tr>
+                <tr style={{background:'#dcfce7',fontWeight:'bold'}}><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>الإجمالي شامل الضريبة</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>{formatNumber(grandTotal+(grandTotal*(Number(siteSettings.vat_rate??15)/100)))} ر.س</td></tr>
+              </>) : (
+                <tr style={{background:'#dcfce7',fontWeight:'bold'}}><td colSpan={5} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>الإجمالي</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>{formatNumber(grandTotal)} ر.س</td></tr>
+              )}
+            </tfoot>
           </table>
         </div>
       </div>
@@ -396,6 +424,13 @@ export default function Purchases() {
   const {data:products}=useProducts()
   const {mutateAsync:deleteByInvoice,isPending:isDeleting}=useDeletePurchasesByInvoice()
 
+  // Stats for current month
+  const cmpP=today.substring(0,7)
+  const thisMonthPurch=useMemo(()=>(purchases??[]).filter(p=>p.date.startsWith(cmpP)&&p.transaction_type!=='مرتجع_مشتريات'),[purchases,cmpP])
+  const monthPurchTotal=useMemo(()=>thisMonthPurch.reduce((s,p)=>s+p.total_cost,0),[thisMonthPurch])
+  const monthPurchInvoices=useMemo(()=>new Set(thisMonthPurch.filter(p=>p.invoice_number).map(p=>p.invoice_number)).size,[thisMonthPurch])
+  const monthPurchReturns=useMemo(()=>(purchases??[]).filter(p=>p.date.startsWith(cmpP)&&p.transaction_type==='مرتجع_مشتريات').reduce((s,p)=>s+p.total_cost,0),[purchases,cmpP])
+
   const filteredPurchases=useMemo(()=>{let data=purchases??[];if(filterSupplier)data=data.filter(p=>p.supplier_id===filterSupplier);if(filterDateFrom)data=data.filter(p=>p.date>=filterDateFrom);if(filterDateTo)data=data.filter(p=>p.date<=filterDateTo);return data},[purchases,filterSupplier,filterDateFrom,filterDateTo])
   const invoiceGroups=useMemo(()=>groupPurchases(filteredPurchases.filter(p=>p.transaction_type!=='مرتجع_مشتريات')),[filteredPurchases])
   const returnGroups=useMemo(()=>groupPurchases(filteredPurchases.filter(p=>p.transaction_type==='مرتجع_مشتريات')),[filteredPurchases])
@@ -446,12 +481,39 @@ export default function Purchases() {
     )
   }
 
+  const monthAvgInvoice = monthPurchInvoices > 0 ? monthPurchTotal / monthPurchInvoices : 0
+
   return (
     <div className="space-y-4">
+      {/* ── Stats KPI ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'مشتريات الشهر', value: `${formatNumber(monthPurchTotal)} ر.س`, color: 'text-primary', bg: 'bg-primary/5 border-primary/15' },
+          { label: 'مرتجعات الشهر', value: `${formatNumber(monthPurchReturns)} ر.س`, color: 'text-warning', bg: 'bg-warning/5 border-warning/15' },
+          { label: 'فواتير الشهر', value: String(monthPurchInvoices), color: 'text-foreground', bg: 'bg-muted/50 border-border' },
+          { label: 'متوسط الفاتورة', value: `${formatNumber(monthAvgInvoice)} ر.س`, color: 'text-muted-foreground', bg: 'bg-muted/50 border-border' },
+        ].map(s=>(
+          <div key={s.label} className={`rounded-xl border px-4 py-3 ${s.bg}`}>
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+            <p className={`text-lg font-bold mt-0.5 ${s.color}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
       {/* ── Sidebar + Content ────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{minHeight: '560px'}}>
         {/* Sidebar */}
         <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+          {/* Stats this month */}
+          <div className="p-3 border-b border-border space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wide">هذا الشهر</p>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between px-1"><span className="text-muted-foreground">المشتريات</span><span className="font-semibold text-primary">{formatNumber(monthPurchTotal)} ر.س</span></div>
+              <div className="flex justify-between px-1"><span className="text-muted-foreground">المرتجعات</span><span className="font-semibold text-warning">{formatNumber(monthPurchReturns)} ر.س</span></div>
+              <div className="flex justify-between px-1"><span className="text-muted-foreground">الفواتير</span><span className="font-semibold">{monthPurchInvoices}</span></div>
+            </div>
+          </div>
+
           {/* Quick Actions */}
           <div className="p-3 border-b border-border space-y-2">
             <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>

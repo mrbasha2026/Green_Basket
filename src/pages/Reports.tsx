@@ -1,4 +1,5 @@
 import { useState, useMemo, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -6,7 +7,14 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FileDown, Search, Package, Users, Target, TrendingUp } from 'lucide-react'
+import { FileDown, Search, Package, Users, Target, TrendingUp, ShoppingCart, Trash2 } from 'lucide-react'
+
+const QUICK_ACTIONS = [
+  { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/15' },
+  { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/15' },
+  { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/15' },
+  { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-muted/50 text-foreground border-border hover:bg-muted' },
+]
 import { useCostAllocation } from '@/hooks/useCostAllocation'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
@@ -62,7 +70,12 @@ export default function Reports() {
   const [month, setMonth] = useState(currentMonth())
   const [fromDate, setFromDate] = useState(currentFirstOfMonth())
   const [toDate, setToDate] = useState(todayISO())
-  const [applied, setApplied] = useState<AppliedFilter | null>(null)
+  const [applied, setApplied] = useState<AppliedFilter | null>(() => ({
+    mode: 'month', year: currentYear(), month: currentMonth(),
+    from: currentFirstOfMonth(),
+    to: lastOfMonth(currentYear(), currentMonth()),
+    label: `${monthName(currentMonth())} ${currentYear()}`,
+  }))
   const [activeRep, setActiveRep] = useState<ReportSection>('products')
 
   const years = [currentYear() - 1, currentYear(), currentYear() + 1]
@@ -185,6 +198,15 @@ export default function Reports() {
 
   return (
     <div className="space-y-4">
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {QUICK_ACTIONS.map(a => (
+          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${a.color}`}>
+            <a.icon className="w-4 h-4 shrink-0" />{a.label}
+          </Link>
+        ))}
+      </div>
+
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
       <Card>
         <CardContent className="pt-5">
@@ -295,7 +317,17 @@ export default function Reports() {
             return null
           })()}
           <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '480px' }}>
-            <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col p-2 space-y-0.5">
+            <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+              {/* Quick actions */}
+              {applied && (
+                <div className="p-2 border-b border-border space-y-1">
+                  <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs"
+                    onClick={() => exportToExcel(`تقرير-${periodTag}.xlsx`, ['الصنف','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'], productRows.map(r=>[r.name,r.qtyKg,r.revenue,r.cost,r.profit,r.marginPct.toFixed(1)+'%']))}>
+                    <FileDown className="w-3.5 h-3.5"/>تصدير Excel
+                  </Button>
+                </div>
+              )}
+              <div className="flex-1 p-2 space-y-0.5">
               <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wide">نوع التقرير</p>
               {([
                 { id: 'products' as ReportSection, label: 'ربحية الأصناف', icon: Package },
@@ -309,6 +341,7 @@ export default function Reports() {
                   <s.icon className="w-4 h-4 shrink-0" /><span className="flex-1">{s.label}</span>
                 </button>
               ))}
+              </div>
             </nav>
             <div className="flex-1 min-w-0 overflow-auto p-4 space-y-4">
             {activeRep === 'products' && <>
@@ -329,10 +362,10 @@ export default function Reports() {
                   {isLoading ? <Skeleton className="h-48" /> : productRows.length === 0 ? (
                     <p className="text-center text-muted-foreground py-10 text-sm">لا توجد مبيعات في هذه الفترة</p>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-auto max-h-[450px] rounded-lg border border-border">
                       <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/50">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-border bg-muted/80">
                             {['الصنف','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','سعر البيع/كج','تكلفة/كج'].map(h => (
                               <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
                             ))}
@@ -385,10 +418,10 @@ export default function Reports() {
                   {isLoading ? <Skeleton className="h-48" /> : customerRows.length === 0 ? (
                     <p className="text-center text-muted-foreground py-10 text-sm">لا توجد مبيعات في هذه الفترة</p>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-auto max-h-[450px] rounded-lg border border-border">
                       <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/50">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-border bg-muted/80">
                             {['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'].map(h => (
                               <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
                             ))}
@@ -441,10 +474,10 @@ export default function Reports() {
                       <p className="mt-1">يرجى احتساب التوزيع أولاً من صفحة محاسبة التكاليف</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-auto max-h-[450px] rounded-lg border border-border">
                       <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/50">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-border bg-muted/80">
                             {['الصنف','تكلفة البضاعة','تكلفة الهدر','المصاريف','التكلفة الكاملة/كج','متوسط سعر البيع','الفرق','الحالة'].map(h => (
                               <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
                             ))}
@@ -498,10 +531,10 @@ export default function Reports() {
                       <p className="mt-1">يرجى احتساب التوزيع من صفحة محاسبة التكاليف</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-auto max-h-[450px] rounded-lg border border-border">
                       <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/50">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-border bg-muted/80">
                             {['الصنف','هامش المساهمة(ر.س)','هامش%','الإيراد','تكلفة البضاعة'].map(h => (
                               <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
                             ))}

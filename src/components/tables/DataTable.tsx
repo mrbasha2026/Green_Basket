@@ -72,11 +72,11 @@ export function DataTable<T>({
 
       {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[560px]">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((hg) => (
-                <TableRow key={hg.id} className="bg-muted/60 hover:bg-muted/60">
+                <TableRow key={hg.id} className="bg-muted/60 hover:bg-muted/60 sticky top-0 z-10">
                   {hg.headers.map((header) => (
                     <TableHead
                       key={header.id}
@@ -146,7 +146,7 @@ export function DataTable<T>({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[10, 20, 50, 100].map(n => (
+              {[10, 20, 50, 100, 200, 500].map(n => (
                 <SelectItem key={n} value={String(n)}>{n}</SelectItem>
               ))}
             </SelectContent>

@@ -132,10 +132,12 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
     const file=e.target.files?.[0];if(!file||!products) return
     try{
       const parsed=await parseExcelFile(file);const newRows:SaleFormRow[]=[]; const unmatched:string[]=[]
-      parsed.filter(r=>r['اسم الصنف']&&r['الكمية(كج)']).forEach(r=>{
+      parsed.filter(r=>r['اسم الصنف']&&Number(r['الكمية(كج)'])>0).forEach(r=>{
         const prod=findProductLocal(String(r['اسم الصنف']??''));if(!prod){unmatched.push(String(r['اسم الصنف']));return}
+        const qty=Number(r['الكمية(كج)']??0); if(qty<=0) return
         const wac=getWAC(prod.id);const dp=defaultPrices?.find(p=>p.product_id===prod.id)?.price_per_kg
-        newRows.push({product_id:prod.id,qty_kg:Number(r['الكمية(كج)']??0),price_per_kg:Number(r['سعر البيع']??dp??0),purchase_price_per_kg:wac,wac})
+        const price=Number(r['سعر البيع']??dp??0); if(price<=0&&!dp) return
+        newRows.push({product_id:prod.id,qty_kg:qty,price_per_kg:price||dp||0,purchase_price_per_kg:wac,wac})
       })
       if(unmatched.length>0) toast.warning(`لم يُطابَق: ${unmatched.join('، ')}`)
       if(newRows.length>0){setRows(prev=>[...prev.filter(r=>r.product_id),...newRows]);toast.success(`تم إضافة ${newRows.length} صنف`)}
@@ -144,6 +146,11 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
   }
 
   const grandTotal=rows.reduce((s,r)=>s+r.qty_kg*r.price_per_kg,0)
+  const [applyVat,setApplyVat]=useState(false)
+  const site=(()=>{try{return JSON.parse(localStorage.getItem('gb_site_settings')??'{}')}catch{return{}}})()
+  const vatRate=Number(site.vat_rate??15)
+  const vatAmount=applyVat?grandTotal*(vatRate/100):0
+  const totalWithVat=grandTotal+vatAmount
 
   async function handleSubmit(){
     const valid=rows.filter(r=>r.product_id&&r.qty_kg>0)
@@ -164,7 +171,6 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
     w.document.close();setTimeout(()=>{w.print();w.close()},300)
   }
 
-  const site=(()=>{try{return JSON.parse(localStorage.getItem('gb_site_settings')??'{}')}catch{return{}}})()
   const customerOptions=(customers??[]).map(c=>({value:c.id,label:c.name_ar}))
   const productOptions=(products??[]).map(p=>({value:p.id,label:p.name_ar,sub:p.category}))
 
@@ -173,7 +179,16 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
       title={`${isEdit?'تعديل':'فاتورة'} مبيعات — ${invoiceNumber}`}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm"><span className="text-muted-foreground">الإجمالي: </span><span className="font-bold text-primary text-base">{formatNumber(grandTotal)} ر.س</span></div>
+          <div className="text-sm space-y-0.5">
+            <div className="flex items-center gap-3">
+              <span className="text-muted-foreground">الإجمالي قبل ض.ق.م:</span>
+              <span className="font-bold text-primary text-base">{formatNumber(grandTotal)} ر.س</span>
+              <button onClick={()=>setApplyVat(v=>!v)} className={cn('text-xs px-2.5 py-1 rounded-lg border transition-colors font-medium',applyVat?'bg-warning/15 text-warning border-warning/30':'bg-muted text-muted-foreground border-border hover:bg-muted/80')}>
+                {applyVat?`ض.ق.م ${vatRate}% مطبقة`:`إضافة ض.ق.م ${vatRate}%`}
+              </button>
+            </div>
+            {applyVat&&<div className="flex gap-4 text-xs"><span className="text-muted-foreground">الضريبة: <span className="text-warning font-medium">{formatNumber(vatAmount)} ر.س</span></span><span className="font-bold text-success">الإجمالي مع الضريبة: {formatNumber(totalWithVat)} ر.س</span></div>}
+          </div>
           <div className="flex gap-2"><Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5"><Printer className="w-4 h-4"/>طباعة</Button><Button onClick={handleSubmit} disabled={isPending||isDeleting} className="gap-1.5">{(isPending||isDeleting)?'جاري الحفظ...':isEdit?'حفظ التعديلات':'حفظ الفاتورة'}</Button></div>
         </div>
       }
@@ -190,7 +205,14 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
             <div className="flex items-center gap-2">
               <input ref={drawerImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleDrawerImport}/>
               <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>drawerImportRef.current?.click()}><Upload className="w-3 h-3"/>استيراد Excel</Button>
-              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>downloadTemplate('sales-template.xlsx',['اسم الصنف','الكمية(كج)','سعر البيع'],[['طماطم','100','5.5'],['خيار','80','4']])}><FileDown className="w-3 h-3"/>قالب</Button>
+              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>{
+                const rows=(products??[]).map(p=>{
+                  const custPrice=defaultPrices?.find(dp=>dp.product_id===p.id)?.price_per_kg
+                  return [p.name_ar,'',custPrice?String(custPrice):'']
+                })
+                exportToExcel(`قالب-مبيعات.xlsx`,['اسم الصنف','الكمية(كج)','سعر البيع'],rows)
+                toast.success('تم تحميل القالب')
+              }}><FileDown className="w-3 h-3"/>قالب</Button>
             </div>
           </div>
           <div className="rounded-lg border border-border overflow-hidden">
@@ -326,6 +348,14 @@ export default function Sales() {
   const {data:sales,isLoading}=useSales(); const {data:customers}=useCustomers(); const {data:products}=useProducts()
   const {mutateAsync:deleteByInvoice,isPending:isDeleting}=useDeleteSalesByInvoice()
 
+  // Stats for current month
+  const cmp=today.substring(0,7)
+  const thisMonthSales=useMemo(()=>(sales??[]).filter(s=>s.date.startsWith(cmp)&&s.transaction_type!=='مرتجع_مبيعات'),[sales,cmp])
+  const monthTotal=useMemo(()=>thisMonthSales.reduce((s,r)=>s+r.total_amount,0),[thisMonthSales])
+  const monthProfit=useMemo(()=>thisMonthSales.reduce((s,r)=>s+r.total_amount-r.total_purchase,0),[thisMonthSales])
+  const monthInvoices=useMemo(()=>new Set(thisMonthSales.filter(s=>s.invoice_number).map(s=>s.invoice_number)).size,[thisMonthSales])
+  const monthReturns=useMemo(()=>(sales??[]).filter(s=>s.date.startsWith(cmp)&&s.transaction_type==='مرتجع_مبيعات').reduce((s,r)=>s+r.total_amount,0),[sales,cmp])
+
   const filteredSales=useMemo(()=>{let data=sales??[];if(filterCustomer)data=data.filter(s=>s.customer_id===filterCustomer);if(filterProduct)data=data.filter(s=>s.product_id===filterProduct);if(filterDateFrom)data=data.filter(s=>s.date>=filterDateFrom);if(filterDateTo)data=data.filter(s=>s.date<=filterDateTo);return data},[sales,filterCustomer,filterProduct,filterDateFrom,filterDateTo])
 
   const invoiceGroups=useMemo(()=>groupSales(filteredSales.filter(s=>s.transaction_type!=='مرتجع_مبيعات')),[filteredSales])
@@ -381,10 +411,35 @@ export default function Sales() {
 
   return (
     <div className="space-y-4">
+      {/* ── Stats KPI ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'مبيعات الشهر', value: `${formatNumber(monthTotal)} ر.س`, color: 'text-success', bg: 'bg-success/5 border-success/15' },
+          { label: 'ربح الشهر', value: `${formatNumber(monthProfit)} ر.س`, color: monthProfit>=0?'text-success':'text-danger', bg: monthProfit>=0?'bg-success/5 border-success/15':'bg-danger/5 border-danger/15' },
+          { label: 'مرتجعات الشهر', value: `${formatNumber(monthReturns)} ر.س`, color: 'text-warning', bg: 'bg-warning/5 border-warning/15' },
+          { label: 'فواتير الشهر', value: String(monthInvoices), color: 'text-foreground', bg: 'bg-muted/50 border-border' },
+        ].map(s=>(
+          <div key={s.label} className={`rounded-xl border px-4 py-3 ${s.bg}`}>
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+            <p className={`text-lg font-bold mt-0.5 ${s.color}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
       {/* ── Sidebar + Content ────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{minHeight:'560px'}}>
         {/* Sidebar */}
         <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+          {/* Stats this month */}
+          <div className="p-3 border-b border-border space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wide">هذا الشهر</p>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between px-1"><span className="text-muted-foreground">المبيعات</span><span className="font-semibold text-success">{formatNumber(monthTotal)} ر.س</span></div>
+              <div className="flex justify-between px-1"><span className="text-muted-foreground">الربح</span><span className={cn('font-semibold',monthProfit>=0?'text-success':'text-danger')}>{formatNumber(monthProfit)} ر.س</span></div>
+              <div className="flex justify-between px-1"><span className="text-muted-foreground">الفواتير</span><span className="font-semibold">{monthInvoices}</span></div>
+            </div>
+          </div>
+
           {/* Quick Actions */}
           <div className="p-3 border-b border-border space-y-2">
             <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>

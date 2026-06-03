@@ -145,7 +145,11 @@ export function useTriggerSync() {
         },
         body: JSON.stringify({ spreadsheetId: spreadsheetId || undefined }),
       })
-      if (!res.ok) throw new Error(`Sync failed: ${res.statusText}`)
+      if (!res.ok) {
+        let msg = res.statusText
+        try { const body = await res.json(); if (body?.message) msg = body.message } catch {}
+        throw new Error(msg)
+      }
       return res.json()
     },
     onSuccess: () => {

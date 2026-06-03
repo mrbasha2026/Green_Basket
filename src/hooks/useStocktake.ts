@@ -138,6 +138,35 @@ export function useDeleteStocktakeItem() {
   })
 }
 
+export function useApprovedStocktakeItems(from: string, to: string) {
+  const DISABLED = '9999-01-01'
+  return useQuery<(StocktakeItem & { session_date: string; session_number: string })[]>({
+    queryKey: ['stocktake_items', 'approved_range', from, to],
+    enabled: from !== DISABLED && to !== DISABLED,
+    queryFn: async () => {
+      const { data: sessions } = await supabase
+        .from('stocktake_sessions')
+        .select('id, date, session_number')
+        .eq('status', 'approved')
+        .gte('date', from)
+        .lte('date', to)
+      if (!sessions || sessions.length === 0) return []
+      const sessionIds = sessions.map(s => s.id)
+      const { data: items, error } = await supabase
+        .from('stocktake_items')
+        .select('*, product:products(name_ar, category)')
+        .in('session_id', sessionIds)
+      if (error) throw error
+      const sessionMap = new Map(sessions.map(s => [s.id, s]))
+      return (items ?? []).map(item => ({
+        ...item,
+        session_date: sessionMap.get(item.session_id)?.date ?? '',
+        session_number: sessionMap.get(item.session_id)?.session_number ?? '',
+      }))
+    },
+  })
+}
+
 export function useApproveStocktake() {
   const qc = useQueryClient()
   return useMutation({

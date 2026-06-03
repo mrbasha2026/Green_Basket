@@ -50,6 +50,31 @@ export function useProductAliases(productId?: string) {
   })
 }
 
+export function useToggleProductActive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      if (USE_MOCK) return
+      const { error } = await supabase.from('products').update({ is_active }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  })
+}
+
+export function useDeleteProduct() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (USE_MOCK) return
+      // Deactivate instead of hard delete to preserve history
+      const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  })
+}
+
 export function useUpsertProduct() {
   const qc = useQueryClient()
   return useMutation({

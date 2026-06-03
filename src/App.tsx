@@ -4,6 +4,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Layout } from '@/components/layout/Layout'
 import Dashboard from '@/pages/Dashboard'
 import Analytics from '@/pages/Analytics'
+import AccountStatement from '@/pages/AccountStatement'
 import Purchases from '@/pages/Purchases'
 import Sales from '@/pages/Sales'
 import Inventory from '@/pages/Inventory'
@@ -25,6 +26,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/account-statement" element={<AccountStatement />} />
             <Route path="/purchases" element={<Purchases />} />
             <Route path="/sales" element={<Sales />} />
             <Route path="/inventory" element={<Inventory />} />
