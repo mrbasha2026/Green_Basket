@@ -1,19 +1,11 @@
 import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FileDown, Search, Package, Users, Target, TrendingUp, ShoppingCart, Trash2 } from 'lucide-react'
-
-const QUICK_ACTIONS = [
-  { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/15' },
-  { to: '/sales', label: 'فاتورة مبيعات', icon: TrendingUp, color: 'bg-success/10 text-success border-success/20 hover:bg-success/15' },
-  { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/15' },
-  { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-muted/50 text-foreground border-border hover:bg-muted' },
-]
+import { FileDown, Search, Target, Users, Package, TrendingUp } from 'lucide-react'
 import { useCostAllocation } from '@/hooks/useCostAllocation'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
@@ -161,7 +153,9 @@ export default function Reports() {
     return (customers ?? []).map(c => {
       const st = map.get(c.id) ?? { revenue: 0, cost: 0, qty: 0 }
       const profit = st.revenue - st.cost
-      return { name: c.name_ar, type: c.type, revenue: st.revenue, cost: st.cost, profit, qty: st.qty, marginPct: st.revenue > 0 ? (profit / st.revenue) * 100 : 0 }
+      const avgSellPerKg = st.qty > 0 ? st.revenue / st.qty : 0
+      const avgCostPerKg = st.qty > 0 ? st.cost / st.qty : 0
+      return { name: c.name_ar, type: c.type, revenue: st.revenue, cost: st.cost, profit, qty: st.qty, marginPct: st.revenue > 0 ? (profit / st.revenue) * 100 : 0, avgSellPerKg, avgCostPerKg }
     }).filter(r => r.revenue > 0).sort((a, b) => b.profit - a.profit)
   }, [sales, customers, latestCosts])
 
@@ -197,15 +191,6 @@ export default function Reports() {
 
   return (
     <div className="space-y-4">
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {QUICK_ACTIONS.map(a => (
-          <Link key={a.to} to={a.to} className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${a.color}`}>
-            <a.icon className="w-4 h-4 shrink-0" />{a.label}
-          </Link>
-        ))}
-      </div>
-
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
       <Card>
         <CardContent className="pt-5">
@@ -305,16 +290,6 @@ export default function Reports() {
             </div>
           )}
 
-          {/* ── Report Sections ───────────────────────────────────────────── */}
-          {(()=>{
-            const repSections: { id: ReportSection; label: string; icon: React.ElementType }[] = [
-              { id: 'products', label: 'ربحية الأصناف', icon: Package },
-              { id: 'customers', label: 'ربحية العملاء', icon: Users },
-              { id: 'breakeven', label: 'نقطة التعادل', icon: Target },
-              { id: 'cm', label: 'هامش المساهمة%', icon: TrendingUp },
-            ]
-            return null
-          })()}
           <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '480px' }}>
             <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col">
               {/* Quick actions */}
@@ -406,8 +381,8 @@ export default function Reports() {
                     <span>ربحية العملاء — {applied.label}</span>
                     <Button variant="outline" size="sm" className="gap-2"
                       onClick={() => exportToExcel(`customers-${periodTag}.xlsx`,
-                        ['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'],
-                        customerRows.map(r => [r.name, r.type, r.qty, r.revenue, r.cost, r.profit, r.marginPct.toFixed(1)+'%'])
+                        ['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','م.سعر البيع/كج','م.التكلفة/كج'],
+                        customerRows.map(r => [r.name, r.type, r.qty, r.revenue, r.cost, r.profit, r.marginPct.toFixed(1)+'%', r.avgSellPerKg.toFixed(2), r.avgCostPerKg.toFixed(2)])
                       )}>
                       <FileDown className="w-4 h-4" /> Excel
                     </Button>
@@ -421,8 +396,8 @@ export default function Reports() {
                       <table className="w-full text-sm">
                         <thead className="sticky top-0 z-10">
                           <tr className="border-b border-border bg-muted/80">
-                            {['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'].map(h => (
-                              <th key={h} className="px-3 py-2 text-right text-muted-foreground">{h}</th>
+                            {['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','م.سعر البيع/كج','م.التكلفة/كج'].map(h => (
+                              <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
                             ))}
                           </tr>
                         </thead>
@@ -436,6 +411,8 @@ export default function Reports() {
                               <td className="px-3 py-2">{formatNumber(r.cost)}</td>
                               <td className={cn('px-3 py-2 font-medium', r.profit >= 0 ? 'text-success' : 'text-danger')}>{formatNumber(r.profit)}</td>
                               <td className={cn('px-3 py-2', r.marginPct >= 20 ? 'text-success' : r.marginPct >= 10 ? 'text-warning' : 'text-danger')}>{r.marginPct.toFixed(1)}%</td>
+                              <td className="px-3 py-2 font-medium text-primary">{formatNumber(r.avgSellPerKg)}</td>
+                              <td className="px-3 py-2 font-medium text-warning">{formatNumber(r.avgCostPerKg)}</td>
                             </tr>
                           ))}
                         </tbody>

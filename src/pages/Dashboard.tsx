@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { TrendingUp, ShoppingCart, Trash2, DollarSign, AlertTriangle, Package, BarChart3, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { DailyStocktakeBanner } from '@/components/inventory/DailyStocktake'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
@@ -50,6 +51,7 @@ function KpiCard({ title, value, unit, sub, icon: Icon, color, trend }: {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const today = todayISO()
   const [dateFrom, setDateFrom] = useState(getMonthStart())
   const [dateTo, setDateTo] = useState(today)
@@ -131,6 +133,9 @@ export default function Dashboard() {
         <QuickDateFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
       </div>
 
+      {/* Daily Stocktake Banner */}
+      <DailyStocktakeBanner onNavigate={() => navigate('/inventory')} />
+
       {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -208,7 +213,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => v.substring(5)} />
                   <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
-                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name]} />
+                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v, name) => [`${formatNumber(Number(v))} ر.س`, String(name)]} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: cs.tickColor }} />
                   <Line type="monotone" dataKey="مبيعات" stroke="#16a34a" strokeWidth={2.5} dot={false} />
                   <Line type="monotone" dataKey="مشتريات" stroke="#2563eb" strokeWidth={2} dot={false} strokeDasharray="4 2" />
@@ -240,7 +245,7 @@ export default function Dashboard() {
                     <Pie data={customerPie} cx="50%" cy="50%" innerRadius={42} outerRadius={68} dataKey="value" paddingAngle={3}>
                       {customerPie.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                     </Pie>
-                    <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المبيعات']} />
+                    <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'المبيعات']} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-1.5 mt-2">
@@ -275,7 +280,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => String(v).length > 8 ? String(v).substring(0, 8) + '…' : v} />
                 <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
-                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number, name: string) => [`${formatNumber(v)} ر.س`, name === 'value' ? 'الإيراد' : 'الربح']} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v, name) => [`${formatNumber(Number(v))} ر.س`, name === 'value' ? 'الإيراد' : 'الربح']} />
                 <Legend formatter={(v) => v === 'value' ? 'الإيراد' : 'الربح'} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: cs.tickColor }} />
                 <Bar dataKey="value" fill="#16a34a" radius={[4, 4, 0, 0]} name="value" maxBarSize={40} />
                 <Bar dataKey="profit" fill="#f59e0b" radius={[4, 4, 0, 0]} name="profit" maxBarSize={40} />

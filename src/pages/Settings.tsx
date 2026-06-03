@@ -1,40 +1,20 @@
-import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAllUsers, useUpsertUserRole, usePermission, type AppRole } from '@/hooks/usePermissions'
 import { useAuth } from '@/hooks/useAuth'
-import { useAllProducts, useUpsertProduct, useToggleProductActive, useHardDeleteProduct } from '@/hooks/useProducts'
-import { useCostCategories, useUpsertCostCategory } from '@/hooks/useOverhead'
-import { useCustomerPrices, useUpsertCustomerPrices } from '@/hooks/useCustomerPrices'
 import { useProducts } from '@/hooks/useProducts'
-import { useCustomers, useAllCustomers, useUpsertCustomer } from '@/hooks/useCustomers'
-import { useSuppliers, useUpsertSupplier, useDeleteSupplier } from '@/hooks/useSuppliers'
-import { useUpsertInventory, useInventoryDaily, useDeleteInventory } from '@/hooks/useInventory'
-import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
+import { useCustomers } from '@/hooks/useCustomers'
 import { useSiteSettings, useUpsertSiteSettings } from '@/hooks/useSiteSettings'
-import type { Product, CostCategory } from '@/types'
-import {
-  Building2, Package, UserCog, Users, Truck,
-  Settings as SettingsIcon, Download, Archive, Pencil, Trash2, Plus, EyeOff, AlertTriangle,
-} from 'lucide-react'
-import { formatNumber, formatDate, todayISO } from '@/lib/utils'
+import { Building2, UserCog, Settings as SettingsIcon, Download, Archive } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type Section =
-  | 'company'
-  | 'users'
-  | 'system'
-  | 'backup'
-  | 'products'
-  | 'customers'
-  | 'suppliers'
+type Section = 'company' | 'users' | 'system' | 'backup'
 
 // ── Company Settings ───────────────────────────────────────────────────────────
 function CompanyTab() {
@@ -65,7 +45,6 @@ function CompanyTab() {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h3 className="text-base font-semibold mb-4">إعدادات المنشأة</h3>
-        {/* Logo */}
         <div className="flex items-center gap-5 mb-6 p-4 bg-muted/30 rounded-xl border border-border">
           <div className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-background cursor-pointer shrink-0" onClick={() => logoRef.current?.click()}>
             {form.logo ? <img src={form.logo} alt="logo" className="w-full h-full object-contain" /> : <span className="text-xs text-muted-foreground text-center px-2">اضغط لرفع الشعار</span>}
@@ -73,7 +52,6 @@ function CompanyTab() {
           <div><p className="text-sm font-medium mb-1">شعار المنشأة</p><p className="text-xs text-muted-foreground mb-2">PNG أو JPG</p><Button variant="outline" size="sm" onClick={() => logoRef.current?.click()}>تغيير الشعار</Button></div>
           <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
         </div>
-
         <div className="grid grid-cols-2 gap-4">
           {[
             { label: 'اسم المنشأة', key: 'name', placeholder: 'Greenbasket' },
@@ -120,7 +98,11 @@ function CompanyTab() {
           <div className="space-y-1"><Label className="text-xs">العملة</Label>
             <Select value={form.currency} onValueChange={v => v && setForm(p => ({ ...p, currency: v }))}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="SAR">ريال سعودي (SAR)</SelectItem><SelectItem value="USD">دولار (USD)</SelectItem><SelectItem value="EUR">يورو (EUR)</SelectItem></SelectContent>
+              <SelectContent>
+                <SelectItem value="SAR">ريال سعودي (SAR)</SelectItem>
+                <SelectItem value="USD">دولار (USD)</SelectItem>
+                <SelectItem value="EUR">يورو (EUR)</SelectItem>
+              </SelectContent>
             </Select>
           </div>
         </div>
@@ -129,359 +111,6 @@ function CompanyTab() {
       <Button onClick={handleSave} disabled={isPending} className="gap-2">
         {isPending ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
       </Button>
-    </div>
-  )
-}
-
-// ── Products Tab ───────────────────────────────────────────────────────────────
-function ProductsTab() {
-  const { data: products } = useAllProducts()
-  const { mutateAsync: upsert, isPending } = useUpsertProduct()
-  const { mutateAsync: toggleActive } = useToggleProductActive()
-  const { mutateAsync: hardDelete, isPending: isHardDeleting } = useHardDeleteProduct()
-  const [editProduct, setEditProduct] = useState<Partial<Product> | null>(null)
-  const [open, setOpen] = useState(false)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [hardDeleteId, setHardDeleteId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [showInactive, setShowInactive] = useState(false)
-  const [showDuplicates, setShowDuplicates] = useState(false)
-
-  // كشف الأصناف المكررة (نفس الاسم العربي)
-  const duplicateNames = useMemo(() => {
-    const counts = new Map<string, number>()
-    ;(products ?? []).forEach(p => counts.set(p.name_ar, (counts.get(p.name_ar) ?? 0) + 1))
-    return new Set([...counts.entries()].filter(([, c]) => c > 1).map(([n]) => n))
-  }, [products])
-
-  const filtered = useMemo(() => (products ?? []).filter(p => {
-    if (!showInactive && !p.is_active) return false
-    if (showDuplicates) return duplicateNames.has(p.name_ar)
-    if (search) return p.name_ar.includes(search) || (p.name_en ?? '').toLowerCase().includes(search.toLowerCase())
-    return true
-  }), [products, showInactive, showDuplicates, search, duplicateNames])
-
-  async function handleSave() {
-    if (!editProduct?.name_ar?.trim()) { toast.error('اسم الصنف مطلوب'); return }
-    try {
-      await upsert({ ...editProduct, name_ar: editProduct.name_ar.trim() })
-      toast.success('تم الحفظ')
-      setOpen(false); setEditProduct(null)
-    } catch (e) { toast.error(`حدث خطأ: ${(e as Error).message}`) }
-  }
-
-  return (
-    <div className="space-y-4">
-      {duplicateNames.size > 0 && (
-        <div className="flex items-center gap-3 p-3 bg-warning/10 border border-warning/30 rounded-xl text-sm">
-          <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
-          <span className="text-warning font-medium">يوجد {duplicateNames.size} اسم مكرر:</span>
-          <div className="flex flex-wrap gap-1.5">
-            {[...duplicateNames].map(n => <span key={n} className="text-xs bg-warning/15 text-warning px-2 py-0.5 rounded font-mono">{n}</span>)}
-          </div>
-          <button onClick={() => setShowDuplicates(v => !v)} className={cn('mr-auto text-xs px-2.5 py-1 rounded-lg border transition-colors shrink-0', showDuplicates ? 'bg-warning/15 text-warning border-warning/30' : 'bg-background text-muted-foreground border-border hover:bg-muted')}>
-            {showDuplicates ? 'إخفاء' : 'عرض المكررة'}
-          </button>
-        </div>
-      )}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-36 text-sm" />
-          <button onClick={() => setShowInactive(v => !v)} className={cn('text-xs px-3 py-1.5 rounded-lg border transition-colors', showInactive ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}>
-            {showInactive ? 'إخفاء الموقوفة' : 'إظهار الموقوفة'}
-          </button>
-          <span className="text-xs text-muted-foreground">{filtered.length} صنف</span>
-        </div>
-        <Button size="sm" className="gap-1.5" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار', is_active: true }); setOpen(true) }}>
-          <Plus className="w-3.5 h-3.5" />إضافة صنف
-        </Button>
-      </div>
-
-      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditProduct(null) }}>
-        <DialogContent><DialogHeader><DialogTitle>{editProduct?.id ? 'تعديل صنف' : 'إضافة صنف جديد'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1"><Label>الاسم بالعربية <span className="text-danger">*</span></Label><Input value={editProduct?.name_ar ?? ''} onChange={e => setEditProduct(p => ({ ...p, name_ar: e.target.value }))} /></div>
-            <div className="space-y-1"><Label>الاسم بالإنجليزية</Label><Input value={String(editProduct?.name_en ?? '')} onChange={e => setEditProduct(p => ({ ...p, name_en: e.target.value }))} dir="ltr" /></div>
-            <div className="space-y-1"><Label>الفئة</Label>
-              <Select value={editProduct?.category ?? 'خضار'} onValueChange={v => v && setEditProduct(p => ({ ...p, category: v as Product['category'] }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="خضار">خضار</SelectItem><SelectItem value="فاكهة">فاكهة</SelectItem><SelectItem value="أعشاب">أعشاب</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending ? 'جاري...' : 'حفظ'}</Button>
-              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* تعطيل */}
-      <Dialog open={!!deleteId} onOpenChange={o => !o && setDeleteId(null)}>
-        <DialogContent className="max-w-sm"><DialogHeader><DialogTitle>تعطيل الصنف</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">لن يظهر في الفواتير الجديدة. السجلات القديمة محفوظة.</p>
-          <div className="flex gap-2 justify-end pt-2">
-            <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>إلغاء</Button>
-            <Button variant="destructive" size="sm" onClick={async () => { if (deleteId) { await toggleActive({ id: deleteId, is_active: false }); toast.success('تم التعطيل'); setDeleteId(null) } }}>تعطيل</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* حذف نهائي */}
-      <Dialog open={!!hardDeleteId} onOpenChange={o => !o && setHardDeleteId(null)}>
-        <DialogContent className="max-w-sm"><DialogHeader><DialogTitle className="text-danger">حذف نهائي للصنف</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">سيتم حذف الصنف نهائياً من قاعدة البيانات. إذا كانت له مبيعات أو مشتريات سابقة، سيفشل الحذف تلقائياً.</p>
-          <div className="flex gap-2 justify-end pt-2">
-            <Button variant="outline" size="sm" onClick={() => setHardDeleteId(null)}>إلغاء</Button>
-            <Button variant="destructive" size="sm" disabled={isHardDeleting} onClick={async () => {
-              if (!hardDeleteId) return
-              try {
-                await hardDelete(hardDeleteId)
-                toast.success('تم الحذف النهائي')
-              } catch { toast.error('فشل الحذف — الصنف مرتبط بسجلات موجودة') }
-              setHardDeleteId(null)
-            }}>{isHardDeleting ? 'جاري...' : 'حذف نهائي'}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/40 z-10"><tr className="border-b border-border">{['الاسم','الإنجليزية','الفئة','الحالة','إجراءات'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {filtered.map((p, i) => (
-              <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10', !p.is_active&&'opacity-60')}>
-                <td className="px-3 py-2 font-medium">{p.name_ar}</td>
-                <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{p.name_en ?? '—'}</td>
-                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
-                <td className="px-3 py-2">
-                  <button onClick={() => toggleActive({ id: p.id, is_active: !p.is_active })}
-                    className={cn('text-xs px-2 py-0.5 rounded font-medium transition-colors', p.is_active ? 'bg-success/15 text-success hover:bg-success/25' : 'bg-muted text-muted-foreground hover:bg-muted/80')}>
-                    {p.is_active ? 'نشط' : 'موقوف'}
-                  </button>
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3"/></Button>
-                    {p.is_active && <Button variant="ghost" size="icon" className="h-7 w-7 text-warning hover:bg-warning/10" title="تعطيل (يحتفظ بالتاريخ)" onClick={() => setDeleteId(p.id)}><EyeOff className="w-3 h-3"/></Button>}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" title="حذف نهائي من قاعدة البيانات" onClick={() => setHardDeleteId(p.id)}><Trash2 className="w-3 h-3"/></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ── Opening Balance Tab ────────────────────────────────────────────────────────
-function OpeningBalanceTab() {
-  const { data: products } = useProducts()
-  const { data: latestCosts } = useLatestPurchaseCosts()
-  const [date, setDate] = useState(() => { const d = new Date(todayISO() + 'T12:00:00'); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` })
-  const [balances, setBalances] = useState<Record<string, { qty: string; cost: string }>>({})
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editQty, setEditQty] = useState(''); const [editCost, setEditCost] = useState('')
-  const { data: existing } = useInventoryDaily(date)
-  const { mutateAsync: upsert, isPending: isSaving } = useUpsertInventory()
-  const { mutateAsync: del } = useDeleteInventory()
-
-  async function handleSave() {
-    const rows = Object.entries(balances).filter(([, v]) => parseFloat(v.qty) > 0).map(([pid, v]) => {
-      const qty = parseFloat(v.qty) || 0; const cost = parseFloat(v.cost) || (latestCosts?.[pid] ?? 0)
-      return { product_id: pid, date, opening_stock_kg: qty, opening_cost_per_kg: cost, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: cost }
-    })
-    if (rows.length === 0) { toast.error('أدخل كمية واحدة على الأقل'); return }
-    try { await upsert(rows); toast.success(`تم حفظ ${rows.length} صنف`); setBalances({}) } catch { toast.error('حدث خطأ') }
-  }
-
-  async function handleUpdate(pid: string) {
-    const qty = parseFloat(editQty); const cost = parseFloat(editCost); if (isNaN(qty) || qty < 0) return
-    try {
-      await upsert([{ product_id: pid, date, opening_stock_kg: qty, opening_cost_per_kg: cost || 0, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: cost || 0 }])
-      toast.success('تم التعديل'); setEditId(null)
-    } catch { toast.error('حدث خطأ') }
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-end gap-4 p-4 bg-muted/30 rounded-xl border border-border">
-        <div className="space-y-1"><Label className="text-xs">تاريخ الرصيد الافتتاحي</Label>
-          <Input type="date" value={date} onChange={e => { setDate(e.target.value); setBalances({}) }} className="w-44 h-9" dir="ltr" /></div>
-        <p className="text-xs text-muted-foreground pb-1">يُدخل مرة واحدة في بداية استخدام النظام</p>
-      </div>
-
-      {(existing ?? []).length > 0 && (
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm">الأرصدة المحفوظة — {formatDate(date)}</CardTitle></CardHeader>
-          <CardContent>
-            <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead><tr className="bg-muted/30 border-b border-border">{['الصنف','الفئة','الكمية (كج)','التكلفة/كج',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-                <tbody>
-                  {(existing ?? []).map(j => (
-                    <tr key={j.product_id} className="border-b last:border-b-0 border-border/50">
-                      <td className="px-3 py-2 font-medium">{j.product?.name_ar ?? j.product_id}</td>
-                      <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{j.product?.category}</Badge></td>
-                      <td className="px-3 py-2">{editId === j.product_id ? <Input type="number" min="0" step="0.01" value={editQty} onChange={e => setEditQty(e.target.value)} className="w-24 h-8 text-sm" dir="ltr" autoFocus /> : <span className="font-semibold">{formatNumber(j.opening_stock_kg)}</span>}</td>
-                      <td className="px-3 py-2">{editId === j.product_id ? <Input type="number" min="0" step="0.01" value={editCost} onChange={e => setEditCost(e.target.value)} className="w-24 h-8 text-sm" dir="ltr" /> : formatNumber(j.weighted_avg_cost)}</td>
-                      <td className="px-3 py-2">
-                        {editId === j.product_id
-                          ? <div className="flex gap-1"><Button size="sm" className="h-7" onClick={() => handleUpdate(j.product_id)} disabled={isSaving}>حفظ</Button><Button size="sm" variant="ghost" className="h-7" onClick={() => setEditId(null)}>إلغاء</Button></div>
-                          : <div className="flex gap-1"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditId(j.product_id); setEditQty(String(j.opening_stock_kg)); setEditCost(String(j.weighted_avg_cost)) }}><Pencil className="w-3.5 h-3.5" /></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => del({ product_id: j.product_id, date }).then(() => toast.success('تم الحذف'))}><Trash2 className="w-3.5 h-3.5" /></Button></div>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card><CardHeader className="pb-2 flex-row items-center justify-between">
-        <CardTitle className="text-sm">إضافة أصناف جديدة</CardTitle>
-        <Button size="sm" className="h-8 gap-1.5" onClick={handleSave} disabled={isSaving}>{isSaving ? 'جاري الحفظ...' : 'حفظ الأرصدة'}</Button>
-      </CardHeader>
-        <CardContent>
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead><tr className="bg-muted/30 border-b border-border">{['الصنف','الفئة','الكمية (كج)','التكلفة/كج'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-              <tbody>
-                {(products ?? []).map(p => {
-                  if ((existing ?? []).some(j => j.product_id === p.id)) return null
-                  return (
-                    <tr key={p.id} className="border-b last:border-b-0 border-border/50">
-                      <td className="px-3 py-2 font-medium">{p.name_ar}</td>
-                      <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
-                      <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0" value={balances[p.id]?.qty ?? ''} onChange={e => setBalances(prev => ({ ...prev, [p.id]: { ...prev[p.id], qty: e.target.value, cost: prev[p.id]?.cost ?? String(latestCosts?.[p.id] ?? '') } }))} className="w-28 h-8 text-sm" dir="ltr" /></td>
-                      <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder={String(latestCosts?.[p.id] ?? '0')} value={balances[p.id]?.cost ?? ''} onChange={e => setBalances(prev => ({ ...prev, [p.id]: { ...prev[p.id], cost: e.target.value, qty: prev[p.id]?.qty ?? '' } }))} className="w-28 h-8 text-sm" dir="ltr" /></td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-// ── Customer Prices Tab ────────────────────────────────────────────────────────
-function DefaultPricesTab() {
-  const { data: products } = useProducts()
-  const { data: customers } = useCustomers()
-  const [selectedCustomer, setSelectedCustomer] = useState('')
-  const [prices, setPrices] = useState<Record<string, string>>({})
-  const [bulkPrice, setBulkPrice] = useState('')
-  const { data: existingPrices } = useCustomerPrices(selectedCustomer || undefined)
-  const { mutateAsync: upsertPrices, isPending } = useUpsertCustomerPrices()
-
-  useEffect(() => {
-    if (!selectedCustomer || !existingPrices) return
-    const loaded: Record<string, string> = {}
-    existingPrices.forEach(p => { loaded[p.product_id] = String(p.price_per_kg) })
-    setPrices(loaded)
-  }, [existingPrices, selectedCustomer])
-
-  async function handleSave() {
-    if (!selectedCustomer) { toast.error('اختر عميلاً أولاً'); return }
-    const rows = Object.entries(prices).filter(([, v]) => parseFloat(v) > 0).map(([productId, price]) => ({ customer_id: selectedCustomer, product_id: productId, price_per_kg: parseFloat(price) }))
-    if (rows.length === 0) { toast.error('أدخل سعراً واحداً على الأقل'); return }
-    try { await upsertPrices(rows); toast.success(`تم حفظ ${rows.length} سعر`) } catch { toast.error('حدث خطأ') }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-3 flex-wrap p-4 bg-muted/30 rounded-xl border border-border">
-        <div className="space-y-1 min-w-48">
-          <Label className="text-xs">العميل</Label>
-          <Select value={selectedCustomer} onValueChange={v => { setSelectedCustomer(v); setPrices({}) }}>
-            <SelectTrigger className="h-9"><SelectValue placeholder="اختر عميلاً" /></SelectTrigger>
-            <SelectContent>{customers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        {selectedCustomer && <>
-          <div className="space-y-1">
-            <Label className="text-xs">سعر موحد</Label>
-            <div className="flex gap-2"><Input type="number" min="0" step="0.01" placeholder="0.00" value={bulkPrice} onChange={e => setBulkPrice(e.target.value)} className="w-28 h-9" dir="ltr" /><Button variant="outline" className="h-9" onClick={() => { const v = parseFloat(bulkPrice); if (!v || !products) return; const all: Record<string, string> = {}; products.forEach(p => { all[p.id] = String(v) }); setPrices(all) }}>تطبيق على الكل</Button></div>
-          </div>
-          <Button onClick={handleSave} disabled={isPending} className="h-9">{isPending ? 'جاري الحفظ...' : 'حفظ الأسعار'}</Button>
-        </>}
-      </div>
-
-      {!selectedCustomer ? <p className="text-sm text-muted-foreground text-center py-8">اختر عميلاً لعرض وتعديل أسعار البيع الافتراضية</p> : (
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-muted/30 border-b border-border">{['الصنف','الفئة','سعر البيع (ر.س/كج)','السعر المحفوظ'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-            <tbody>
-              {products?.map(p => {
-                const saved = existingPrices?.find(ep => ep.product_id === p.id)
-                return (
-                  <tr key={p.id} className="border-b last:border-b-0 border-border/50 hover:bg-muted/20">
-                    <td className="px-3 py-2 font-medium">{p.name_ar}</td>
-                    <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{p.category}</Badge></td>
-                    <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0.00" value={prices[p.id] ?? ''} onChange={e => setPrices(prev => ({ ...prev, [p.id]: e.target.value }))} className="w-28 h-8 text-sm" dir="ltr" /></td>
-                    <td className="px-3 py-2 text-muted-foreground text-xs">{saved ? formatNumber(saved.price_per_kg) : '—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Cost Categories Tab ────────────────────────────────────────────────────────
-function CostCategoriesTab() {
-  const { data: categories } = useCostCategories()
-  const { mutateAsync: upsert, isPending } = useUpsertCostCategory()
-  const [editCat, setEditCat] = useState<Partial<CostCategory> | null>(null)
-  const [open, setOpen] = useState(false)
-
-  async function handleSave() {
-    if (!editCat?.name_ar) { toast.error('اسم الفئة مطلوب'); return }
-    try { await upsert(editCat); toast.success('تم الحفظ'); setOpen(false); setEditCat(null) } catch { toast.error('حدث خطأ') }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button size="sm" className="gap-2" onClick={() => { setEditCat({ name_ar: '', type: 'fixed' }); setOpen(true) }}><Plus className="w-3.5 h-3.5" />إضافة فئة</Button>
-      </div>
-      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditCat(null) }}>
-        <DialogContent><DialogHeader><DialogTitle>{editCat?.id ? 'تعديل فئة' : 'إضافة فئة جديدة'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1"><Label>اسم الفئة</Label><Input value={editCat?.name_ar ?? ''} onChange={e => setEditCat(p => ({ ...p, name_ar: e.target.value }))} /></div>
-            <div className="space-y-1"><Label>النوع</Label>
-              <Select value={editCat?.type ?? 'fixed'} onValueChange={v => v && setEditCat(p => ({ ...p, type: v as CostCategory['type'] }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="fixed">ثابت</SelectItem><SelectItem value="variable">متغير</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <Button onClick={handleSave} disabled={isPending} className="w-full">{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <div className="rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead><tr className="bg-muted/30 border-b border-border">{['الاسم','النوع','الحالة',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {categories?.map(cat => (
-              <tr key={cat.id} className="border-b last:border-b-0 border-border/50 hover:bg-muted/20">
-                <td className="px-3 py-2 font-medium">{cat.name_ar}</td>
-                <td className="px-3 py-2"><span className={cn('text-xs px-2 py-0.5 rounded font-medium', cat.type === 'fixed' ? 'bg-primary/10 text-primary' : 'bg-warning/10 text-warning')}>{cat.type === 'fixed' ? 'ثابت' : 'متغير'}</span></td>
-                <td className="px-3 py-2"><span className={`text-xs font-medium ${cat.is_active ? 'text-success' : 'text-muted-foreground'}`}>{cat.is_active ? 'نشط' : 'موقوف'}</span></td>
-                <td className="px-3 py-2"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditCat({ id: cat.id, name_ar: cat.name_ar, type: cat.type }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   )
 }
@@ -507,7 +136,11 @@ function UsersTab() {
       {(users ?? []).length === 0 ? (
         <div className="text-center py-8 space-y-3">
           <p className="text-sm text-muted-foreground">لا توجد بيانات مستخدمين</p>
-          {session?.user && <Button onClick={() => upsertRole({ id: session.user.id, email: session.user.email ?? '', role: 'admin', name: session.user.user_metadata?.name ?? session.user.email ?? 'مدير' })} disabled={isPending}>{isPending ? 'جاري...' : 'سجّل نفسك مديراً للنظام'}</Button>}
+          {session?.user && (
+            <Button onClick={() => upsertRole({ id: session.user.id, email: session.user.email ?? '', role: 'admin', name: session.user.user_metadata?.name ?? session.user.email ?? 'مدير' })} disabled={isPending}>
+              {isPending ? 'جاري...' : 'سجّل نفسك مديراً للنظام'}
+            </Button>
+          )}
           <p className="text-xs text-muted-foreground">تأكد من تشغيل SQL الخاص بجدول user_profiles في Supabase</p>
         </div>
       ) : (
@@ -519,12 +152,22 @@ function UsersTab() {
                 <tr key={u.id} className="border-b last:border-b-0 border-border/50 hover:bg-muted/20">
                   <td className="px-3 py-2 font-medium">{u.name ?? '—'}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{u.email}</td>
-                  <td className="px-3 py-2"><Badge variant="outline" className={u.role === 'admin' ? 'text-primary' : u.role === 'manager' ? 'text-warning' : 'text-muted-foreground'}>{ROLE_LABELS[u.role]}</Badge></td>
                   <td className="px-3 py-2">
-                    {canEdit && <Select value={u.role} onValueChange={v => upsertRole({ id: u.id, role: v as AppRole, email: u.email, name: u.name })}>
-                      <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="admin">مدير</SelectItem><SelectItem value="manager">مشرف</SelectItem><SelectItem value="viewer">مشاهد</SelectItem></SelectContent>
-                    </Select>}
+                    <Badge variant="outline" className={u.role === 'admin' ? 'text-primary' : u.role === 'manager' ? 'text-warning' : 'text-muted-foreground'}>
+                      {ROLE_LABELS[u.role]}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2">
+                    {canEdit && (
+                      <Select value={u.role} onValueChange={v => upsertRole({ id: u.id, role: v as AppRole, email: u.email, name: u.name })}>
+                        <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">مدير</SelectItem>
+                          <SelectItem value="manager">مشرف</SelectItem>
+                          <SelectItem value="viewer">مشاهد</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -536,9 +179,15 @@ function UsersTab() {
   )
 }
 
+const DAILY_STOCKTAKE_KEY = 'gb_daily_stocktake_count'
+
 // ── System Settings Tab ────────────────────────────────────────────────────────
 function SystemTab() {
   const [theme, setTheme] = useState(() => document.documentElement.classList.contains('dark') ? 'dark' : 'light')
+  const [dailyCount, setDailyCount] = useState(() => {
+    const saved = localStorage.getItem(DAILY_STOCKTAKE_KEY)
+    return saved ? String(parseInt(saved, 10) || 5) : '5'
+  })
 
   function applyTheme(t: string) {
     setTheme(t)
@@ -546,8 +195,35 @@ function SystemTab() {
     localStorage.setItem('gb_theme', t)
   }
 
+  function saveDailyCount() {
+    const n = Math.max(1, Math.min(20, parseInt(dailyCount, 10) || 5))
+    localStorage.setItem(DAILY_STOCKTAKE_KEY, String(n))
+    setDailyCount(String(n))
+    // Reset today's stocktake so new count takes effect tomorrow
+    toast.success(`تم الحفظ — سيُطبّق العدد الجديد (${n} أصناف) من الغد`)
+  }
+
   return (
     <div className="space-y-6 max-w-lg">
+      <div>
+        <h3 className="text-base font-semibold mb-4">الجرد اليومي العشوائي</h3>
+        <div className="flex items-end gap-3 p-4 bg-muted/30 rounded-xl border border-border">
+          <div className="space-y-1 flex-1">
+            <Label className="text-xs">عدد الأصناف المجردة يومياً</Label>
+            <Input
+              type="number"
+              min="1"
+              max="20"
+              value={dailyCount}
+              onChange={e => setDailyCount(e.target.value)}
+              className="w-24 h-9"
+              dir="ltr"
+            />
+            <p className="text-xs text-muted-foreground">الحد: 1–20 صنف يومياً</p>
+          </div>
+          <Button onClick={saveDailyCount} className="h-9">حفظ</Button>
+        </div>
+      </div>
       <div>
         <h3 className="text-base font-semibold mb-4">المظهر</h3>
         <div className="grid grid-cols-2 gap-3">
@@ -582,7 +258,8 @@ function BackupTab() {
     const data = { products: products ?? [], customers: customers ?? [], exported_at: new Date().toISOString() }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `greenbasket-backup-${new Date().toISOString().split('T')[0]}.json`; a.click()
+    const a = document.createElement('a')
+    a.href = url; a.download = `greenbasket-backup-${new Date().toISOString().split('T')[0]}.json`; a.click()
     URL.revokeObjectURL(url)
     toast.success('تم تصدير النسخة الاحتياطية')
   }
@@ -596,12 +273,10 @@ function BackupTab() {
           <Archive className="w-4 h-4" />تصدير نسخة احتياطية (JSON)
         </Button>
       </div>
-
       <div className="p-4 bg-warning/10 border border-warning/30 rounded-xl space-y-2">
         <p className="text-sm font-semibold text-warning">ملاحظة</p>
         <p className="text-xs text-muted-foreground">بيانات المبيعات والمشتريات محفوظة في Supabase ولا يمكن تصديرها بالكامل من هنا. استخدم Supabase Dashboard لتصدير جداول قاعدة البيانات كاملةً.</p>
       </div>
-
       <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-3">
         <h3 className="text-sm font-semibold">SQL — جدول الإعدادات في Supabase</h3>
         <p className="text-xs text-muted-foreground">شغّل هذا الـ SQL مرة واحدة في Supabase SQL Editor لتفعيل حفظ الإعدادات:</p>
@@ -620,135 +295,6 @@ ON CONFLICT DO NOTHING;`}
   )
 }
 
-// ── Customers Tab ─────────────────────────────────────────────────────────────
-type CustomerType = 'مستشفى' | 'فندق' | 'مطعم' | 'تجزئة'
-
-function CustomersTab() {
-  const { data: customers } = useAllCustomers()
-  const { mutateAsync: upsert, isPending } = useUpsertCustomer()
-  const [editItem, setEditItem] = useState<{id?:string;name_ar:string;type:CustomerType;is_active:boolean}|null>(null)
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const filtered = (customers??[]).filter(c => !search || c.name_ar.includes(search))
-
-  async function handleSave() {
-    if (!editItem?.name_ar) { toast.error('اسم العميل مطلوب'); return }
-    try { await upsert(editItem); toast.success('تم الحفظ'); setOpen(false); setEditItem(null) } catch { toast.error('حدث خطأ') }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-40 text-sm" />
-        <Button size="sm" className="gap-1.5" onClick={() => { setEditItem({ name_ar: '', type: 'تجزئة', is_active: true }); setOpen(true) }}>
-          <Plus className="w-3.5 h-3.5" />إضافة عميل
-        </Button>
-      </div>
-      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditItem(null) }}>
-        <DialogContent><DialogHeader><DialogTitle>{editItem?.id ? 'تعديل عميل' : 'إضافة عميل'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1"><Label>الاسم *</Label><Input value={editItem?.name_ar??''} onChange={e=>setEditItem(p=>({...p!,name_ar:e.target.value}))}/></div>
-            <div className="space-y-1"><Label>النوع</Label>
-              <Select value={editItem?.type??'تجزئة'} onValueChange={v=>v&&setEditItem(p=>({...p!,type:v as CustomerType}))}>
-                <SelectTrigger><SelectValue/></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="تجزئة">تجزئة</SelectItem>
-                  <SelectItem value="مستشفى">مستشفى</SelectItem>
-                  <SelectItem value="فندق">فندق</SelectItem>
-                  <SelectItem value="مطعم">مطعم</SelectItem>
-                </SelectContent>
-              </Select></div>
-            <div className="flex gap-2 pt-1">
-              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending?'جاري...':'حفظ'}</Button>
-              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/40 z-10"><tr className="border-b border-border">{['الاسم','النوع','الحالة',''].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {filtered.map((c, i) => (
-              <tr key={c.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10')}>
-                <td className="px-3 py-2 font-medium">{c.name_ar}</td>
-                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{c.type}</Badge></td>
-                <td className="px-3 py-2"><span className={`text-xs font-medium ${c.is_active?'text-success':'text-muted-foreground'}`}>{c.is_active?'نشط':'موقوف'}</span></td>
-                <td className="px-3 py-2">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditItem({id:c.id,name_ar:c.name_ar,type:c.type,is_active:c.is_active}); setOpen(true) }}><Pencil className="w-3 h-3"/></Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ── Suppliers Tab ─────────────────────────────────────────────────────────────
-function SuppliersTab() {
-  const { data: suppliers } = useSuppliers()
-  const { mutateAsync: upsert, isPending } = useUpsertSupplier()
-  const { mutateAsync: remove } = useDeleteSupplier()
-  const [editItem, setEditItem] = useState<{id?:string;name_ar:string;phone:string;city:string;is_active:boolean;is_default:boolean}|null>(null)
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const filtered = (suppliers??[]).filter(s => !search || s.name_ar.includes(search))
-
-  async function handleSave() {
-    if (!editItem?.name_ar) { toast.error('اسم المورد مطلوب'); return }
-    try { await upsert(editItem as Parameters<typeof upsert>[0]); toast.success('تم الحفظ'); setOpen(false); setEditItem(null) } catch { toast.error('حدث خطأ') }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-40 text-sm" />
-        <Button size="sm" className="gap-1.5" onClick={() => { setEditItem({ name_ar: '', phone: '', city: '', is_active: true, is_default: false }); setOpen(true) }}>
-          <Plus className="w-3.5 h-3.5" />إضافة مورد
-        </Button>
-      </div>
-      <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditItem(null) }}>
-        <DialogContent><DialogHeader><DialogTitle>{editItem?.id ? 'تعديل مورد' : 'إضافة مورد'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1"><Label>الاسم *</Label><Input value={editItem?.name_ar??''} onChange={e=>setEditItem(p=>({...p!,name_ar:e.target.value}))}/></div>
-            <div className="space-y-1"><Label>الهاتف</Label><Input value={editItem?.phone??''} onChange={e=>setEditItem(p=>({...p!,phone:e.target.value}))} dir="ltr"/></div>
-            <div className="space-y-1"><Label>المدينة</Label><Input value={editItem?.city??''} onChange={e=>setEditItem(p=>({...p!,city:e.target.value}))}/></div>
-            <div className="flex gap-2 pt-1">
-              <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending?'جاري...':'حفظ'}</Button>
-              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <div className="rounded-xl border border-border overflow-hidden max-h-[500px] overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/40 z-10"><tr className="border-b border-border">{['الاسم','الهاتف','المدينة','الحالة',''].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {filtered.map((s, i) => (
-              <tr key={s.id} className={cn('border-b border-border/50 hover:bg-muted/20', i%2===1&&'bg-muted/10')}>
-                <td className="px-3 py-2 font-medium">{s.name_ar}{s.is_default&&<Badge className="text-xs mr-1.5 bg-primary/15 text-primary border-primary/20">افتراضي</Badge>}</td>
-                <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{s.phone??'—'}</td>
-                <td className="px-3 py-2 text-muted-foreground text-xs">{s.city??'—'}</td>
-                <td className="px-3 py-2"><span className={`text-xs font-medium ${s.is_active?'text-success':'text-muted-foreground'}`}>{s.is_active?'نشط':'موقوف'}</span></td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditItem({id:s.id,name_ar:s.name_ar,phone:s.phone??'',city:s.city??'',is_active:s.is_active,is_default:s.is_default}); setOpen(true) }}><Pencil className="w-3 h-3"/></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => remove(s.id).then(()=>toast.success('تم الحذف'))}><Trash2 className="w-3 h-3"/></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Settings ──────────────────────────────────────────────────────────────
 interface SidebarSection { id: Section; label: string; icon: React.ElementType; group?: string }
 
@@ -757,9 +303,6 @@ const SECTIONS: SidebarSection[] = [
   { id: 'system', label: 'إعدادات النظام', icon: SettingsIcon, group: 'الإعدادات العامة' },
   { id: 'backup', label: 'النسخ الاحتياطي والـ SQL', icon: Archive, group: 'الإعدادات العامة' },
   { id: 'users', label: 'إدارة المستخدمين', icon: UserCog, group: 'الصلاحيات' },
-  { id: 'products', label: 'إدارة الأصناف', icon: Package, group: 'البيانات الرئيسية' },
-  { id: 'customers', label: 'إدارة العملاء', icon: Users, group: 'البيانات الرئيسية' },
-  { id: 'suppliers', label: 'إدارة الموردين', icon: Truck, group: 'البيانات الرئيسية' },
 ]
 
 const CONTENT: Record<Section, ReactNode> = {
@@ -767,9 +310,6 @@ const CONTENT: Record<Section, ReactNode> = {
   system: <SystemTab />,
   backup: <BackupTab />,
   users: <UsersTab />,
-  products: <ProductsTab />,
-  customers: <CustomersTab />,
-  suppliers: <SuppliersTab />,
 }
 
 export default function Settings() {

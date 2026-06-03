@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react'
 import { toast } from 'sonner'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,10 +16,10 @@ import {
 import { useInventoryUpTo } from '@/hooks/useInventory'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useProducts } from '@/hooks/useProducts'
-import { parseExcelFile, exportToExcel, downloadTemplate } from '@/lib/excel'
+import { parseExcelFile, exportToExcel } from '@/lib/excel'
 import { formatNumber, formatDate, todayISO } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Trash2, Pencil, Eye, FileDown, Upload, CheckCircle, ClipboardList, ArrowRight } from 'lucide-react'
+import { Plus, Trash2, Eye, FileDown, Upload, CheckCircle, ClipboardList, ArrowRight } from 'lucide-react'
 
 // ── Session list ───────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: StocktakeSession['status'] }) {

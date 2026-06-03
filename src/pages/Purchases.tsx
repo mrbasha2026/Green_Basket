@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -46,6 +45,7 @@ function InvoiceDetailSheet({ group, open, onClose, products }: {
   group: InvoiceGroup|null; open: boolean; onClose: ()=>void; products: import('@/types').Product[]
 }) {
   if (!group) return null
+  const g = group
   const site = (() => { try { return JSON.parse(localStorage.getItem('gb_site_settings')??'{}') } catch { return {} } })()
   function handlePrint() {
     const el=document.getElementById('inv-detail-print'); if(!el) return
@@ -54,11 +54,11 @@ function InvoiceDetailSheet({ group, open, onClose, products }: {
     w.document.close(); setTimeout(()=>{w.print();w.close()},300)
   }
   function handleExcel() {
-    exportToExcel(group.items.map(p=>({'رقم الفاتورة':p.invoice_number??'—','الصنف':products.find(pr=>pr.id===p.product_id)?.name_ar??p.product_id,'التاريخ':p.date,'كراتين':p.cartons_qty,'السعر/كرتون':p.price_per_carton,'وزن/كرتون':p.weight_per_carton,'إجمالي الوزن(كج)':p.total_weight,'إجمالي التكلفة(ر.س)':p.total_cost,'تكلفة/كج':p.cost_per_kg})),`فاتورة-${group.invoice_number??group.date}`)
+    exportToExcel(g.items.map(p=>({'رقم الفاتورة':p.invoice_number??'—','الصنف':products.find(pr=>pr.id===p.product_id)?.name_ar??p.product_id,'التاريخ':p.date,'كراتين':p.cartons_qty,'السعر/كرتون':p.price_per_carton,'وزن/كرتون':p.weight_per_carton,'إجمالي الوزن(كج)':p.total_weight,'إجمالي التكلفة(ر.س)':p.total_cost,'تكلفة/كج':p.cost_per_kg})),`فاتورة-${g.invoice_number??g.date}`)
     toast.success('تم تصدير Excel')
   }
   return (
-    <Sheet open={open} onClose={onClose} title={`تفاصيل — ${group.invoice_number??'(بدون رقم)'}`}
+    <Sheet open={open} onClose={onClose} title={`تفاصيل — ${g.invoice_number??'(بدون رقم)'}`}
       footer={<div className="flex gap-2 justify-end"><Button variant="outline" size="sm" className="gap-1.5" onClick={handleExcel}><FileDown className="w-4 h-4"/>Excel</Button><Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint}><Printer className="w-4 h-4"/>طباعة</Button></div>}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 rounded-lg p-4 border border-border">
@@ -318,9 +318,8 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
   const [filterDateTo, setFilterDateTo] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterType, setFilterType] = useState<'all'|'purchase'|'return'>('all')
-  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const { mutateAsync: deletePurchase, isPending: isDeleting } = useDeletePurchase()
+  const { mutateAsync: deletePurchase } = useDeletePurchase()
 
   const filtered = useMemo(() => {
     let data = purchases
@@ -334,7 +333,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
 
   const productOptions = products.map(p => ({ value: p.id, label: p.name_ar }))
 
-  function handleExport() {
+  async function handleExport() {
     exportToExcel(filtered.map(p => ({
       'التاريخ': p.date, 'النوع': p.transaction_type === 'مرتجع_مشتريات' ? 'مرتجع' : 'شراء',
       'الصنف': products.find(pr => pr.id === p.product_id)?.name_ar ?? '',
@@ -551,10 +550,6 @@ export default function Purchases() {
             <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
             <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}>
               <Plus className="w-3.5 h-3.5"/>فاتورة مشتريات
-            </Button>
-            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs"
-              onClick={()=>setActiveSection('suppliers')}>
-              <Truck className="w-3.5 h-3.5"/>إدارة الموردين
             </Button>
           </div>
 

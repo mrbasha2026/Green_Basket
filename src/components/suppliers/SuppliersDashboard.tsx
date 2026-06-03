@@ -152,7 +152,7 @@ export function SuppliersDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: cs.tickColor }} />
                   <YAxis tick={{ fontSize: 11, fill: cs.tickColor }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'المشتريات']} />
+                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'المشتريات']} />
                   <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
                 </BarChart>
                 )})()}

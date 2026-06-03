@@ -1,7 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,6 +47,7 @@ function InvoiceDetailSheet({ group, open, onClose, products }: {
   group: SaleGroup|null; open: boolean; onClose: ()=>void; products: import('@/types').Product[]
 }) {
   if(!group) return null
+  const g = group
   const site=(()=>{try{return JSON.parse(localStorage.getItem('gb_site_settings')??'{}')}catch{return{}}})()
   function handlePrint(){
     const el=document.getElementById('sale-detail-print');if(!el)return
@@ -56,11 +56,11 @@ function InvoiceDetailSheet({ group, open, onClose, products }: {
     w.document.close();setTimeout(()=>{w.print();w.close()},300)
   }
   function handleExcel(){
-    exportToExcel(group.items.map(s=>({'رقم الفاتورة':s.invoice_number??'—','العميل':s.customer?.name_ar??'—','الصنف':products.find(p=>p.id===s.product_id)?.name_ar??s.product_id,'التاريخ':s.date,'الكمية(كج)':s.qty_kg,'سعر البيع':s.price_per_kg,'الإجمالي':s.total_amount,'الربح':s.total_amount-s.total_purchase})),`فاتورة-${group.invoice_number??group.date}`)
+    exportToExcel(g.items.map(s=>({'رقم الفاتورة':s.invoice_number??'—','العميل':s.customer?.name_ar??'—','الصنف':products.find(p=>p.id===s.product_id)?.name_ar??s.product_id,'التاريخ':s.date,'الكمية(كج)':s.qty_kg,'سعر البيع':s.price_per_kg,'الإجمالي':s.total_amount,'الربح':s.total_amount-s.total_purchase})),`فاتورة-${g.invoice_number??g.date}`)
     toast.success('تم تصدير Excel')
   }
   return (
-    <Sheet open={open} onClose={onClose} title={`تفاصيل — ${group.invoice_number??'(بدون رقم)'}`}
+    <Sheet open={open} onClose={onClose} title={`تفاصيل — ${g.invoice_number??'(بدون رقم)'}`}
       footer={<div className="flex gap-2 justify-end"><Button variant="outline" size="sm" className="gap-1.5" onClick={handleExcel}><FileDown className="w-4 h-4"/>Excel</Button><Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint}><Printer className="w-4 h-4"/>طباعة</Button></div>}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 rounded-lg p-4 border border-border">
@@ -314,7 +314,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
     )},
   ], [filtered, selectedIds, products, isDeleting])
 
-  function handleExport(){
+  async function handleExport(){
     exportToExcel(filtered.map(s=>({'التاريخ':s.date,'النوع':s.transaction_type==='مرتجع_مبيعات'?'مرتجع':'بيع','العميل':s.customer?.name_ar??'','الصنف':products.find(p=>p.id===s.product_id)?.name_ar??'','رقم الفاتورة':s.invoice_number??'—','الكمية(كج)':s.qty_kg,'م.و.م':s.purchase_price_per_kg,'سعر البيع':s.price_per_kg,'الإجمالي':s.total_amount,'الربح':s.total_amount-s.total_purchase})),'سجل-المبيعات')
     toast.success('تم تصدير Excel')
   }
@@ -474,9 +474,6 @@ export default function Sales() {
             <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
             <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}>
               <Plus className="w-3.5 h-3.5"/>فاتورة مبيعات
-            </Button>
-            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={()=>setActiveSection('customers')}>
-              <Users className="w-3.5 h-3.5"/>إدارة العملاء
             </Button>
           </div>
 

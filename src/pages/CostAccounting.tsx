@@ -4,7 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
@@ -542,7 +542,7 @@ function CostCategoriesInline() {
   const { data: categories } = useCostCategories()
   const { mutateAsync: upsertCat, isPending: isSaving } = useUpsertCostCategory()
 
-  type CatForm = { id?: string; name_ar: string; type: string }
+  type CatForm = { id?: string; name_ar: string; type: 'fixed' | 'variable' }
   const [editCat, setEditCat] = useState<CatForm | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -579,7 +579,7 @@ function CostCategoriesInline() {
             <p className="font-semibold">{editCat?.id?'تعديل فئة':'إضافة فئة جديدة'}</p>
             <div className="space-y-1"><Label className="text-xs">اسم الفئة</Label><Input value={editCat?.name_ar??''} onChange={e=>setEditCat(p=>p?({...p,name_ar:e.target.value}):p)}/></div>
             <div className="space-y-1"><Label className="text-xs">النوع</Label>
-              <select className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm" value={editCat?.type??'fixed'} onChange={e=>setEditCat(p=>p?({...p,type:e.target.value}):p)}>
+              <select className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm" value={editCat?.type??'fixed'} onChange={e=>setEditCat(p=>p?({...p,type:e.target.value as 'fixed'|'variable'}):p)}>
                 <option value="fixed">ثابت</option><option value="variable">متغير</option>
               </select></div>
             <div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={()=>setOpen(false)}>إلغاء</Button><Button size="sm" disabled={isSaving} onClick={handleSave}>{isSaving?'جاري...':'حفظ'}</Button></div>

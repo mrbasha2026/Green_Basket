@@ -26,17 +26,17 @@ export const mockCustomers: Customer[] = [
 ]
 
 export const mockPurchases: Purchase[] = [
-  { id: 'pu1', product_id: 'p1', date: today, cartons_qty: 10, price_per_carton: 50, weight_per_carton: 10, waste_kg: 2, total_cost: 500, total_weight: 100, cost_per_kg: 5.1, source: 'web', notes: null, created_at: today, product: mockProducts[0] },
-  { id: 'pu2', product_id: 'p2', date: today, cartons_qty: 8, price_per_carton: 40, weight_per_carton: 12, waste_kg: 1, total_cost: 320, total_weight: 96, cost_per_kg: 3.37, source: 'web', notes: null, created_at: today, product: mockProducts[1] },
-  { id: 'pu3', product_id: 'p3', date: today, cartons_qty: 15, price_per_carton: 30, weight_per_carton: 15, waste_kg: 5, total_cost: 450, total_weight: 225, cost_per_kg: 2.05, source: 'web', notes: null, created_at: today, product: mockProducts[2] },
-  { id: 'pu4', product_id: 'p5', date: yd, cartons_qty: 20, price_per_carton: 25, weight_per_carton: 18, waste_kg: 3, total_cost: 500, total_weight: 360, cost_per_kg: 1.4, source: 'google_sheet', notes: null, created_at: yd, product: mockProducts[4] },
+  { id: 'pu1', product_id: 'p1', date: today, cartons_qty: 10, price_per_carton: 50, weight_per_carton: 10, waste_kg: 2, total_cost: 500, total_weight: 100, cost_per_kg: 5.1, source: 'web', notes: null, created_at: today, supplier_id: null, invoice_number: null, supplier_ref: null, transaction_type: null, product: mockProducts[0] },
+  { id: 'pu2', product_id: 'p2', date: today, cartons_qty: 8, price_per_carton: 40, weight_per_carton: 12, waste_kg: 1, total_cost: 320, total_weight: 96, cost_per_kg: 3.37, source: 'web', notes: null, created_at: today, supplier_id: null, invoice_number: null, supplier_ref: null, transaction_type: null, product: mockProducts[1] },
+  { id: 'pu3', product_id: 'p3', date: today, cartons_qty: 15, price_per_carton: 30, weight_per_carton: 15, waste_kg: 5, total_cost: 450, total_weight: 225, cost_per_kg: 2.05, source: 'web', notes: null, created_at: today, supplier_id: null, invoice_number: null, supplier_ref: null, transaction_type: null, product: mockProducts[2] },
+  { id: 'pu4', product_id: 'p5', date: yd, cartons_qty: 20, price_per_carton: 25, weight_per_carton: 18, waste_kg: 3, total_cost: 500, total_weight: 360, cost_per_kg: 1.4, source: 'google_sheet', notes: null, created_at: yd, supplier_id: null, invoice_number: null, supplier_ref: null, transaction_type: null, product: mockProducts[4] },
 ]
 
 export const mockSales: Sale[] = [
-  { id: 's1', product_id: 'p1', customer_id: 'c1', date: today, qty_kg: 30, purchase_price_per_kg: 5.1, price_per_kg: 8, total_purchase: 153, total_amount: 240, source: 'web', created_at: today, product: mockProducts[0], customer: mockCustomers[0] },
-  { id: 's2', product_id: 'p2', customer_id: 'c1', date: today, qty_kg: 20, purchase_price_per_kg: 3.37, price_per_kg: 6, total_purchase: 67.4, total_amount: 120, source: 'web', created_at: today, product: mockProducts[1], customer: mockCustomers[0] },
-  { id: 's3', product_id: 'p1', customer_id: 'c2', date: today, qty_kg: 15, purchase_price_per_kg: 5.1, price_per_kg: 7.5, total_purchase: 76.5, total_amount: 112.5, source: 'web', created_at: today, product: mockProducts[0], customer: mockCustomers[1] },
-  { id: 's4', product_id: 'p5', customer_id: 'c3', date: yd, qty_kg: 50, purchase_price_per_kg: 1.4, price_per_kg: 3, total_purchase: 70, total_amount: 150, source: 'google_sheet', created_at: yd, product: mockProducts[4], customer: mockCustomers[2] },
+  { id: 's1', product_id: 'p1', customer_id: 'c1', date: today, qty_kg: 30, purchase_price_per_kg: 5.1, price_per_kg: 8, total_purchase: 153, total_amount: 240, source: 'web', created_at: today, invoice_number: null, transaction_type: null, product: mockProducts[0], customer: mockCustomers[0] },
+  { id: 's2', product_id: 'p2', customer_id: 'c1', date: today, qty_kg: 20, purchase_price_per_kg: 3.37, price_per_kg: 6, total_purchase: 67.4, total_amount: 120, source: 'web', created_at: today, invoice_number: null, transaction_type: null, product: mockProducts[1], customer: mockCustomers[0] },
+  { id: 's3', product_id: 'p1', customer_id: 'c2', date: today, qty_kg: 15, purchase_price_per_kg: 5.1, price_per_kg: 7.5, total_purchase: 76.5, total_amount: 112.5, source: 'web', created_at: today, invoice_number: null, transaction_type: null, product: mockProducts[0], customer: mockCustomers[1] },
+  { id: 's4', product_id: 'p5', customer_id: 'c3', date: yd, qty_kg: 50, purchase_price_per_kg: 1.4, price_per_kg: 3, total_purchase: 70, total_amount: 150, source: 'google_sheet', created_at: yd, invoice_number: null, transaction_type: null, product: mockProducts[4], customer: mockCustomers[2] },
 ]
 
 export const mockInventory: InventoryDaily[] = [

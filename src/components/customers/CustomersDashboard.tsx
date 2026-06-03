@@ -14,7 +14,7 @@ import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import type { Customer } from '@/types'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, FileDown, TrendingUp, Users, ShoppingBag } from 'lucide-react'
+import { Plus, Pencil, FileDown, Users } from 'lucide-react'
 
 export function CustomersDashboard() {
   const today = todayISO()
@@ -153,7 +153,7 @@ export function CustomersDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke}/>
                   <XAxis dataKey="name" tick={{fontSize:10, fill: cs.tickColor}}/>
                   <YAxis tick={{fontSize:11, fill: cs.tickColor}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
-                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v:number,n:string)=>[`${formatNumber(v)} ر.س`,n]}/>
+                  <Tooltip contentStyle={cs.tooltipStyle} formatter={(v,n)=>[`${formatNumber(Number(v))} ر.س`,String(n)]}/>
                   <Bar dataKey="الإيراد" fill="#2563eb" radius={[3,3,0,0]}/>
                   <Bar dataKey="الربح" fill="#16a34a" radius={[3,3,0,0]}/>
                 </BarChart>

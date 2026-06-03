@@ -13,8 +13,9 @@ import { DataTable } from '@/components/tables/DataTable'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { Combobox } from '@/components/ui/combobox'
 import { StocktakeSection } from '@/components/inventory/StocktakeSection'
+import { DailyStocktakeSection } from '@/components/inventory/DailyStocktake'
 import { useApprovedStocktakeItems } from '@/hooks/useStocktake'
-import { useEarliestInventory, useInventoryRange, useInventoryDaily, useInventoryUpTo, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
+import { useEarliestInventory, useInventoryRange, useInventoryDaily, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWasteByRange } from '@/hooks/useWaste'
@@ -37,8 +38,9 @@ type MovType = 'شراء' | 'بيع' | 'هدر' | 'افتتاحي' | 'مرتجع
 interface MovementRow {
   id: string; date: string; product_id: string; product_name: string
   category: string; type: MovType; qty: number; cost_per_unit: number; total: number
+  ref?: string
 }
-type Section = 'overview' | 'balance' | 'movements' | 'jard' | 'products' | 'opening_balance'
+type Section = 'overview' | 'balance' | 'movements' | 'jard' | 'daily_jard' | 'products' | 'opening_balance'
 
 function firstOfMonth() {
   const d = new Date(todayISO() + 'T12:00:00')
@@ -92,11 +94,6 @@ export default function Inventory() {
   const [appliedRFrom, setAppliedRFrom] = useState<string | null>(null)
   const [appliedRTo, setAppliedRTo] = useState<string | null>(null)
 
-  // Jard state
-  const [jardDate, setJardDate] = useState(todayISO())
-  const [jardEditId, setJardEditId] = useState<string | null>(null)
-  const [jardEditQty, setJardEditQty] = useState('')
-  const [jardInputs, setJardInputs] = useState<Record<string, string>>({})
 
   // Overview state — auto-load current month
   const [ovFrom, setOvFrom] = useState(firstOfMonth())
@@ -120,10 +117,6 @@ export default function Inventory() {
   // Balance queries
   const { data: earliest, isLoading: eL } = useEarliestInventory()
   const { data: products } = useProducts()
-  const { mutateAsync: upsertInventory, isPending: isSaving } = useUpsertInventory()
-  const { mutateAsync: deleteInventory } = useDeleteInventory()
-  const { data: jardExisting } = useInventoryDaily(jardDate)
-  const { data: jardExpected } = useInventoryUpTo(jardDate)
   const { data: purchasesBefore, isLoading: pbL } = usePurchasesByRange('2000-01-01', dayBefore)
   const { data: salesBefore, isLoading: sbL } = useSalesByRange('2000-01-01', dayBefore)
   const { data: wasteBefore, isLoading: wbL } = useWasteByRange('2000-01-01', dayBefore)
@@ -268,11 +261,11 @@ export default function Inventory() {
     })
     ;(movPurchases ?? []).forEach(p => {
       const isReturn = p.transaction_type === 'مرتجع_مشتريات'
-      rows.push({ id: `p_${p.id}`, date: p.date, product_id: p.product_id, product_name: p.product?.name_ar ?? '—', category: p.product?.category ?? '', type: isReturn ? 'مرتجع مشتريات' : 'شراء', qty: p.total_weight ?? p.cartons_qty * p.weight_per_carton, cost_per_unit: p.cost_per_kg, total: p.total_cost ?? p.cartons_qty * p.price_per_carton })
+      rows.push({ id: `p_${p.id}`, date: p.date, product_id: p.product_id, product_name: p.product?.name_ar ?? '—', category: p.product?.category ?? '', type: isReturn ? 'مرتجع مشتريات' : 'شراء', qty: p.total_weight ?? p.cartons_qty * p.weight_per_carton, cost_per_unit: p.cost_per_kg, total: p.total_cost ?? p.cartons_qty * p.price_per_carton, ref: p.invoice_number ?? undefined })
     })
     ;(movSales ?? []).forEach(s => {
       const isReturn = s.transaction_type === 'مرتجع_مبيعات'
-      rows.push({ id: `s_${s.id}`, date: s.date, product_id: s.product_id, product_name: s.product?.name_ar ?? '—', category: s.product?.category ?? '', type: isReturn ? 'مرتجع مبيعات' : 'بيع', qty: s.qty_kg, cost_per_unit: s.price_per_kg, total: s.total_amount })
+      rows.push({ id: `s_${s.id}`, date: s.date, product_id: s.product_id, product_name: s.product?.name_ar ?? '—', category: s.product?.category ?? '', type: isReturn ? 'مرتجع مبيعات' : 'بيع', qty: s.qty_kg, cost_per_unit: s.price_per_kg, total: s.total_amount, ref: s.invoice_number ?? undefined })
     })
     ;(movWaste ?? []).forEach(w => {
       const wac = latestCosts?.[w.product_id] ?? 0
@@ -282,7 +275,7 @@ export default function Inventory() {
       if (st.actual_qty === null || st.actual_qty === undefined) return
       const wac = latestCosts?.[st.product_id] ?? 0
       const prod = st.product as { name_ar: string; category: string } | undefined
-      rows.push({ id: `st_${st.id}`, date: st.session_date, product_id: st.product_id, product_name: prod?.name_ar ?? '—', category: prod?.category ?? '', type: 'جرد', qty: st.actual_qty, cost_per_unit: wac, total: st.actual_qty * wac })
+      rows.push({ id: `st_${st.id}`, date: st.session_date, product_id: st.product_id, product_name: prod?.name_ar ?? '—', category: prod?.category ?? '', type: 'جرد', qty: st.actual_qty, cost_per_unit: wac, total: st.actual_qty * wac, ref: st.session_number ?? undefined })
     })
     return rows.filter(r => {
       if (reportProduct && r.product_id !== reportProduct) return false
@@ -307,6 +300,7 @@ export default function Inventory() {
 
   const movCols = useMemo<ColumnDef<MovementRow>[]>(() => [
     { accessorKey: 'date', header: 'التاريخ', cell: ({ getValue }) => <span className="text-xs text-muted-foreground">{formatDate(getValue() as string)}</span> },
+    { accessorKey: 'ref', header: 'رقم الحركة', cell: ({ getValue }) => { const v = getValue() as string | undefined; return v ? <span className="font-mono text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">{v}</span> : <span className="text-muted-foreground text-xs">—</span> } },
     { accessorKey: 'product_name', header: 'الصنف', cell: ({ getValue }) => <span className="font-medium text-sm">{getValue() as string}</span> },
     { accessorKey: 'category', header: 'الفئة', cell: ({ getValue }) => <Badge variant="outline" className="text-xs">{getValue() as string}</Badge> },
     {
@@ -328,38 +322,18 @@ export default function Inventory() {
     { accessorKey: 'total', header: 'الإجمالي (ر.س)', cell: ({ getValue }) => { const v = getValue() as number; return v > 0 ? <span className="font-medium">{formatNumber(v)}</span> : '—' } },
   ], [])
 
-  // ── Jard handlers ──────────────────────────────────────────────────────────
-  async function handleSaveJard() {
-    const rows = Object.entries(jardInputs)
-      .filter(([, v]) => v !== '' && parseFloat(v) >= 0)
-      .map(([pid, v]) => {
-        const qty = parseFloat(v); const wac = latestCosts?.[pid] ?? 0
-        return { product_id: pid, date: jardDate, opening_stock_kg: qty, opening_cost_per_kg: wac, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: wac }
-      })
-    if (rows.length === 0) { toast.error('أدخل كمية واحدة على الأقل'); return }
-    try { await upsertInventory(rows); toast.success(`تم حفظ ${rows.length} صنف`); setJardInputs({}) } catch { toast.error('حدث خطأ') }
-  }
-  async function handleDeleteJard(product_id: string) {
-    try { await deleteInventory({ product_id, date: jardDate }); toast.success('تم الحذف') } catch { toast.error('حدث خطأ') }
-  }
-  async function handleUpdateJard(product_id: string) {
-    const qty = parseFloat(jardEditQty); if (isNaN(qty) || qty < 0) return
-    const wac = latestCosts?.[product_id] ?? 0
-    try {
-      await upsertInventory([{ product_id, date: jardDate, opening_stock_kg: qty, opening_cost_per_kg: wac, purchased_weight: 0, purchase_cost: 0, waste_kg: 0, sales_kg: 0, closing_stock_kg: qty, weighted_avg_cost: wac }])
-      toast.success('تم التعديل'); setJardEditId(null); setJardEditQty('')
-    } catch { toast.error('حدث خطأ') }
-  }
 
   // ── Sidebar sections ───────────────────────────────────────────────────────
-  const sections: { id: Section; label: string; icon: React.ElementType; badge?: number; group?: string }[] = [
-    { id: 'overview', label: 'لوحة المخزون', icon: BarChart2, group: 'عرض' },
-    { id: 'balance', label: 'رصيد المخزون', icon: Package, badge: inventoryBalance.length || undefined, group: 'عرض' },
-    { id: 'movements', label: 'حركات المخزون', icon: TrendingDown, badge: movements.length || undefined, group: 'عرض' },
-    { id: 'jard', label: 'جرد المخزون', icon: ClipboardList, group: 'عرض' },
-    { id: 'products', label: 'إدارة الأصناف', icon: Layers, group: 'إدارة' },
-    { id: 'opening_balance', label: 'الرصيد الافتتاحي', icon: Plus, group: 'إدارة' },
+  const sections: { id: Section; label: string; icon: React.ElementType; badge?: number; group: string; highlight?: boolean }[] = [
+    { id: 'overview', label: 'لوحة المخزون', icon: BarChart2, group: 'التقارير' },
+    { id: 'balance', label: 'رصيد المخزون', icon: Package, badge: inventoryBalance.length || undefined, group: 'التقارير' },
+    { id: 'movements', label: 'حركات المخزون', icon: TrendingDown, badge: movements.length || undefined, group: 'التقارير' },
+    { id: 'daily_jard', label: 'الجرد اليومي', icon: ClipboardList, group: 'العمليات', highlight: true },
+    { id: 'jard', label: 'جرد المخزون', icon: ClipboardList, group: 'العمليات' },
+    { id: 'products', label: 'إدارة الأصناف', icon: Layers, group: 'العمليات' },
+    { id: 'opening_balance', label: 'الرصيد الافتتاحي', icon: Plus, group: 'العمليات' },
   ]
+  const sectionGroups = ['التقارير', 'العمليات'] as const
 
   const productOptions = (products ?? []).map(p => ({ value: p.id, label: p.name_ar }))
 
@@ -371,32 +345,26 @@ export default function Inventory() {
 
         {/* Sidebar */}
         <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
-          {/* Quick actions */}
-          <div className="p-3 border-b border-border space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
-            <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={() => setActiveSection('jard')}>
-              <ClipboardList className="w-3.5 h-3.5" />جرد جديد
-            </Button>
-            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={() => setActiveSection('products')}>
-              <Plus className="w-3.5 h-3.5" />إضافة صنف
-            </Button>
-            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={() => setActiveSection('opening_balance')}>
-              <Layers className="w-3.5 h-3.5" />رصيد افتتاحي
-            </Button>
+          <div className="p-4 border-b border-border">
+            <p className="text-sm font-bold">المخزون</p>
           </div>
-
           {/* Sections grouped */}
           <div className="flex-1 p-2 overflow-y-auto space-y-3">
-            {(['عرض', 'إدارة'] as const).map(group => (
+            {sectionGroups.map(group => (
               <div key={group}>
                 <p className="text-xs font-semibold text-muted-foreground px-3 py-1.5 uppercase tracking-wide">{group}</p>
                 <div className="space-y-0.5">
                   {sections.filter(s => s.group === group).map(s => (
                     <button key={s.id} onClick={() => setActiveSection(s.id)}
                       className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
-                        activeSection === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                        activeSection === s.id ? 'bg-primary text-primary-foreground'
+                        : s.highlight ? 'text-warning hover:bg-warning/10'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                       <s.icon className="w-4 h-4 shrink-0" />
                       <span className="flex-1">{s.label}</span>
+                      {s.highlight && activeSection !== s.id && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-warning/15 text-warning">!</span>
+                      )}
                       {s.badge !== undefined && (
                         <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{s.badge}</span>
                       )}
@@ -471,7 +439,7 @@ export default function Inventory() {
                           <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
                           <XAxis dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} />
                           <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-                          <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} كج`, 'الكمية']} />
+                          <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} كج`, 'الكمية']} />
                           <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
                         </BarChart>
                         )})()}
@@ -492,7 +460,7 @@ export default function Inventory() {
                             <Pie data={categoryChart} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
                               {categoryChart.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                             </Pie>
-                            <Tooltip contentStyle={getChartStyle().tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'القيمة']} />
+                            <Tooltip contentStyle={getChartStyle().tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'القيمة']} />
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="space-y-1.5 mt-2">
@@ -631,7 +599,7 @@ export default function Inventory() {
                 <Card>
                   <CardHeader><CardTitle className="text-sm flex items-center justify-between">
                     <span>حركات المخزون <span className="text-muted-foreground font-normal">({movements.length} حركة)</span></span>
-                    <Button variant="outline" size="sm" className="gap-1 h-8 text-xs" onClick={() => exportToExcel(`movements-${appliedRFrom}-${appliedRTo}.xlsx`, ['التاريخ','الصنف','الفئة','النوع','الكمية(كج)','السعر/كج','الإجمالي'], movements.map(m => [m.date, m.product_name, m.category, m.type, m.qty, m.cost_per_unit, m.total]))}>
+                    <Button variant="outline" size="sm" className="gap-1 h-8 text-xs" onClick={() => exportToExcel(`movements-${appliedRFrom}-${appliedRTo}.xlsx`, ['رقم الحركة','التاريخ','الصنف','الفئة','النوع','الكمية(كج)','السعر/كج','الإجمالي'], movements.map(m => [m.ref??'—', m.date, m.product_name, m.category, m.type, m.qty, m.cost_per_unit, m.total]))}>
                       <FileDown className="w-3.5 h-3.5" />Excel
                     </Button>
                   </CardTitle></CardHeader>
@@ -642,6 +610,13 @@ export default function Inventory() {
                   </CardContent>
                 </Card>
               )}
+            </div>
+          )}
+
+          {/* ── Daily Jard ──────────────────────────────────────────── */}
+          {activeSection === 'daily_jard' && (
+            <div className="p-5">
+              <DailyStocktakeSection />
             </div>
           )}
 

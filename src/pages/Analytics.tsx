@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart, Area } from 'recharts'
+import { ResponsiveContainer, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart, Area } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { useSalesByRange } from '@/hooks/useSales'
@@ -208,9 +208,9 @@ export default function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: cs.tickColor }} />
               <YAxis tick={{ fontSize: 11, fill: cs.tickColor }} tickFormatter={tickFmt} />
-              <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number, name: string) => [
-                `${formatNumber(v)} ر.س`,
-                name === 'sales' ? 'مبيعات' : name === 'purchases' ? 'مشتريات' : 'ربح'
+              <Tooltip contentStyle={cs.tooltipStyle} formatter={(v, name) => [
+                `${formatNumber(Number(v))} ر.س`,
+                String(name) === 'sales' ? 'مبيعات' : String(name) === 'purchases' ? 'مشتريات' : 'ربح'
               ]} />
               <Legend formatter={(v) => v === 'sales' ? 'مبيعات' : v === 'purchases' ? 'مشتريات' : 'ربح'} wrapperStyle={{ color: cs.tickColor }} />
               <Area type="monotone" dataKey="profit" fill="#dcfce7" stroke="#16a34a" strokeWidth={2} dot={false} name="profit" />
@@ -234,7 +234,7 @@ export default function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} width={70} />
-                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#16a34a" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -250,7 +250,7 @@ export default function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} width={70} />
-                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#2563eb" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -266,7 +266,7 @@ export default function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={tickFmt} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: cs.tickColor }} width={70} />
-                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v: number) => [`${formatNumber(v)} ر.س`, 'الإجمالي']} />
+                <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'الإجمالي']} />
                 <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
