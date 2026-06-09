@@ -579,9 +579,10 @@ function CostCategoriesInline() {
             <p className="font-semibold">{editCat?.id?'تعديل فئة':'إضافة فئة جديدة'}</p>
             <div className="space-y-1"><Label className="text-xs">اسم الفئة</Label><Input value={editCat?.name_ar??''} onChange={e=>setEditCat(p=>p?({...p,name_ar:e.target.value}):p)}/></div>
             <div className="space-y-1"><Label className="text-xs">النوع</Label>
-              <select className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm" value={editCat?.type??'fixed'} onChange={e=>setEditCat(p=>p?({...p,type:e.target.value as 'fixed'|'variable'}):p)}>
-                <option value="fixed">ثابت</option><option value="variable">متغير</option>
-              </select></div>
+              <Select value={editCat?.type??'fixed'} onValueChange={v=>setEditCat(p=>p?({...p,type:v as 'fixed'|'variable'}):p)}>
+                <SelectTrigger className="w-full h-9 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="fixed">ثابت</SelectItem><SelectItem value="variable">متغير</SelectItem></SelectContent>
+              </Select></div>
             <div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={()=>setOpen(false)}>إلغاء</Button><Button size="sm" disabled={isSaving} onClick={handleSave}>{isSaving?'جاري...':'حفظ'}</Button></div>
           </div>
         </div>

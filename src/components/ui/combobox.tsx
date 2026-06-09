@@ -30,7 +30,7 @@ export function Combobox({
   const ref = React.useRef<HTMLDivElement>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
-  const [rect, setRect] = React.useState<{ bottom: number; left: number; width: number; openAbove: boolean } | null>(null)
+  const [rect, setRect] = React.useState<{ bottom: number; top: number; left: number; width: number; openAbove: boolean } | null>(null)
 
   const uniqueOptions = options.filter((o, i, a) => a.findIndex(x => x.value === o.value) === i)
   const selected = uniqueOptions.find(o => o.value === value)
@@ -52,7 +52,7 @@ export function Combobox({
       const r = triggerRef.current.getBoundingClientRect()
       const spaceBelow = window.innerHeight - r.bottom
       setRect({
-        bottom: r.bottom, left: r.left, width: r.width,
+        bottom: r.bottom, top: r.top, left: r.left, width: r.width,
         openAbove: spaceBelow < 280 && r.top > 200,
       })
       setTimeout(() => inputRef.current?.focus(), 50)
@@ -87,7 +87,7 @@ export function Combobox({
           className="z-[9999] rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
           style={rect ? (rect.openAbove ? {
             position: 'fixed',
-            bottom: window.innerHeight - rect.bottom + (rect.bottom - rect.bottom) + 4,
+            bottom: window.innerHeight - rect.top + 4,
             top: 'auto',
             left: rect.left,
             width: rect.width,

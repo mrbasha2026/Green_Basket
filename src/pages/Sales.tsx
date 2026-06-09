@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Sheet } from '@/components/ui/sheet'
 import { Combobox } from '@/components/ui/combobox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { CustomersDashboard } from '@/components/customers/CustomersDashboard'
 import { useProducts } from '@/hooks/useProducts'
@@ -209,13 +210,15 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
             <div className="flex items-center gap-2">
               <input ref={drawerImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleDrawerImport}/>
               <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>drawerImportRef.current?.click()}><Upload className="w-3 h-3"/>استيراد Excel</Button>
-              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>{
-                const rows=(products??[]).map(p=>{
-                  const custPrice=defaultPrices?.find(dp=>dp.product_id===p.id)?.price_per_kg
-                  return [p.name_ar,'',custPrice?String(custPrice):'']
-                })
-                exportToExcel(`قالب-مبيعات.xlsx`,['اسم الصنف','الكمية(كج)','سعر البيع'],rows)
-                toast.success('تم تحميل القالب')
+              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={async()=>{
+                try {
+                  const rows=(products??[]).map(p=>{
+                    const custPrice=defaultPrices?.find(dp=>dp.product_id===p.id)?.price_per_kg
+                    return [p.name_ar,'',custPrice?String(custPrice):'']
+                  })
+                  await exportToExcel(`قالب-مبيعات.xlsx`,['اسم الصنف','الكمية(كج)','سعر البيع'],rows)
+                  toast.success('تم تحميل القالب')
+                } catch { toast.error('فشل تحميل القالب') }
               }}><FileDown className="w-3 h-3"/>قالب</Button>
             </div>
           </div>
@@ -571,10 +574,13 @@ function CustomerPricesSection() {
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex flex-wrap items-end gap-3 px-5 py-3 border-b border-border bg-background/50 shrink-0">
         <div className="space-y-1"><Label className="text-xs">العميل</Label>
-          <select className="h-9 text-sm rounded-lg border border-input bg-background px-3 w-56" value={selectedCustomer} onChange={e=>{setSelectedCustomer(e.target.value);setPrices({})}}>
-            <option value="">اختر عميلاً</option>
-            {customers?.map(c=><option key={c.id} value={c.id}>{c.name_ar}</option>)}
-          </select></div>
+          <Select value={selectedCustomer} onValueChange={v=>{setSelectedCustomer(v);setPrices({})}}>
+            <SelectTrigger className="h-9 text-sm w-56"><SelectValue placeholder="اختر عميلاً" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">اختر عميلاً</SelectItem>
+              {customers?.map(c=><SelectItem key={c.id} value={c.id}>{c.name_ar}</SelectItem>)}
+            </SelectContent>
+          </Select></div>
         {selectedCustomer&&<>
           <div className="space-y-1"><Label className="text-xs">سعر موحد</Label>
             <div className="flex gap-2"><Input type="number" min="0" step="0.01" placeholder="0.00" value={bulkPrice} onChange={e=>setBulkPrice(e.target.value)} className="w-28 h-9" dir="ltr"/>

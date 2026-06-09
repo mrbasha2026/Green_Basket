@@ -44,12 +44,13 @@ export function useCurrentUserPermissions() {
 
       // إذا لم يكن للمستخدم دور، يُعامَل كمدير نظام (للحساب الأول)
       if (!profile.data?.role_id) {
-        const { data: adminRole } = await supabase
+        const { data: adminRoles } = await supabase
           .from('roles')
           .select('id')
           .eq('is_system', true)
-          .maybeSingle()
+          .limit(1)
 
+        const adminRole = adminRoles?.[0]
         if (!adminRole) return new Map()
 
         const { data: perms } = await supabase
@@ -89,8 +90,9 @@ export function usePermission(screen: string, action: Action): boolean {
 
 // نفس الـ hook مع إظهار حالة التحميل
 export function usePermissionWithLoading(screen: string, action: Action): { allowed: boolean; isLoading: boolean } {
-  const { data: perms, isLoading } = useCurrentUserPermissions()
-  if (isLoading) return { allowed: false, isLoading: true }
+  const { data: perms, isLoading, isError } = useCurrentUserPermissions()
+  // خطأ في الجلب = لا نعيد التوجيه، نبقى في حالة تحميل حتى ينجح الـ retry
+  if (isLoading || isError) return { allowed: false, isLoading: true }
   if (!perms) return { allowed: false, isLoading: false }
   return { allowed: perms.get(screen)?.has(action) ?? false, isLoading: false }
 }

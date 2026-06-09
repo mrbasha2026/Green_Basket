@@ -1,20 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-)
-
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-
-  const token = req.headers.get('authorization')?.replace('Bearer ', '')
-  if (!token) return new Response('Unauthorized', { status: 401 })
+export async function createUser(params: {
+  callerToken: string
+  email: string
+  name: string
+  password: string
+  role_id: string
+}): Promise<{ success: true; userId: string } | { error: string; status: number }> {
+  const supabaseAdmin = createClient(
+    process.env.VITE_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
 
   // تحقق من هوية المستدعي
-  const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
-  if (authError || !user) return new Response('Unauthorized', { status: 401 })
+  const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(params.callerToken)
+  if (authError || !user) return { error: 'Unauthorized', status: 401 }
 
   // تحقق من صلاحية إضافة مستخدمين
   const { data: profile } = await supabaseAdmin
@@ -23,7 +24,7 @@ export default async function handler(req: Request): Promise<Response> {
     .eq('id', user.id)
     .maybeSingle()
 
-  // مستخدم بدون role_id = أول مدير (bootstrap)، يُسمح له بالإنشاء
+  // مستخدم بدون profile أو بدون role_id = bootstrap أول مدير
   const allowed = !profile?.role_id || await (async () => {
     const { data } = await supabaseAdmin
       .from('role_permissions')
@@ -35,28 +36,20 @@ export default async function handler(req: Request): Promise<Response> {
     return !!data
   })()
 
-  if (!allowed) return new Response('Forbidden', { status: 403 })
-
-  let body: { email?: string; name?: string; password?: string; role_id?: string }
-  try { body = await req.json() } catch { return new Response('Invalid JSON', { status: 400 }) }
-
-  const { email, name, password, role_id } = body
-  if (!email || !password) return new Response('email and password required', { status: 400 })
+  if (!allowed) return { error: 'Forbidden', status: 403 }
 
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password,
+    email: params.email,
+    password: params.password,
     email_confirm: true,
-    user_metadata: { name },
+    user_metadata: { name: params.name },
   })
-  if (error) return Response.json({ error: error.message }, { status: 400 })
+  if (error) return { error: error.message, status: 400 }
 
-  if (data.user) {
-    const { error: profileError } = await supabaseAdmin
-      .from('user_profiles')
-      .upsert({ id: data.user.id, email, name, role_id }, { onConflict: 'id' })
-    if (profileError) return Response.json({ error: profileError.message }, { status: 500 })
-  }
+  const { error: profileError } = await supabaseAdmin
+    .from('user_profiles')
+    .upsert({ id: data.user.id, email: params.email, name: params.name, role_id: params.role_id }, { onConflict: 'id' })
+  if (profileError) return { error: profileError.message, status: 500 }
 
-  return Response.json({ success: true, userId: data.user?.id })
+  return { success: true, userId: data.user.id }
 }

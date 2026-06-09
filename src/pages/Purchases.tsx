@@ -239,10 +239,12 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
             <div className="flex items-center gap-2">
               <input ref={drawerImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleDrawerImport}/>
               <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>drawerImportRef.current?.click()}><Upload className="w-3 h-3"/>استيراد Excel</Button>
-              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={()=>{
-                const rows=(products??[]).map(p=>[p.name_ar,'','',''])
-                exportToExcel(`قالب-مشتريات.xlsx`,['اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],rows)
-                toast.success('تم تحميل القالب')
+              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={async()=>{
+                try {
+                  const rows=(products??[]).map(p=>[p.name_ar,'','',''])
+                  await exportToExcel(`قالب-مشتريات.xlsx`,['اسم الصنف','كراتين','السعر/كرتون','وزن/كرتون(كج)'],rows)
+                  toast.success('تم تحميل القالب')
+                } catch { toast.error('فشل تحميل القالب') }
               }}><FileDown className="w-3 h-3"/>قالب</Button>
             </div>
           </div>

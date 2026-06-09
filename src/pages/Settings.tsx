@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import React, { useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -128,6 +128,23 @@ function UsersTab() {
   const [showCreate, setShowCreate] = useState(false)
   const [createForm, setCreateForm] = useState({ email: '', name: '', password: '', role_id: '' })
   const [showPassword, setShowPassword] = useState(false)
+  const bootstrapped = useRef(false)
+
+  // تسجيل تلقائي كمدير عند فتح التبويب إذا لم يكن هناك مستخدمون
+  useEffect(() => {
+    if (bootstrapped.current) return
+    if (isLoading || !users || users.length > 0) return
+    if (!session?.user || !roles || roles.length === 0) return
+    const adminRole = roles.find(r => r.is_system)
+    if (!adminRole) return
+    bootstrapped.current = true
+    upsertProfile({
+      id: session.user.id,
+      email: session.user.email ?? '',
+      name: session.user.user_metadata?.name ?? 'مدير',
+      role_id: adminRole.id,
+    }).catch(() => { bootstrapped.current = false })
+  }, [isLoading, users, session, roles, upsertProfile])
 
   async function handleCreate() {
     if (!createForm.email || !createForm.password || !createForm.role_id) return
@@ -146,8 +163,12 @@ function UsersTab() {
     if (!session?.user) return
     const adminRole = roles?.find(r => r.is_system)
     if (!adminRole) return
-    await upsertProfile({ id: session.user.id, email: session.user.email ?? '', name: session.user.user_metadata?.name ?? 'مدير', role_id: adminRole.id })
-    toast.success('تم تسجيلك مديراً للنظام')
+    try {
+      await upsertProfile({ id: session.user.id, email: session.user.email ?? '', name: session.user.user_metadata?.name ?? 'مدير', role_id: adminRole.id })
+      toast.success('تم تسجيلك مديراً للنظام')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'فشل تسجيل المستخدم')
+    }
   }
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-4">جاري التحميل...</p>

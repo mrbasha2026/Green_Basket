@@ -51,6 +51,8 @@ export default function PeriodManagement() {
 
   async function handleClose(month: number) {
     try {
+      const res = await calculateWAC({ year: selectedYear, month })
+      toast.success(`تم احتساب WAC — ${res.products} صنف، ${res.sales} مبيعة`)
       await closePeriod({ year: selectedYear, month, periods })
       toast.success(`تم إغلاق ${MONTH_NAMES[month - 1]} ${selectedYear}`)
     } catch (e) {
@@ -158,7 +160,7 @@ export default function PeriodManagement() {
                                 {isCalc ? 'جاري...' : 'احتساب WAC'}
                               </Button>
                             )}
-                            {canPost && !isClosed && hasWAC && (
+                            {canPost && !isClosed && (
                               <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 border-success/40 text-success hover:bg-success/10"
                                 disabled={isPending}
                                 onClick={() => handleClose(month)}>
