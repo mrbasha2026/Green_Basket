@@ -25,6 +25,7 @@ import { Plus, Trash2, Printer, Upload, FileDown, ShoppingBag, RotateCcw, FileTe
 import { DataTable } from '@/components/tables/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { supabase } from '@/lib/supabase'
+import { usePermission } from '@/hooks/usePermissions'
 
 // ── Sale group type ───────────────────────────────────────────────────────────
 interface SaleGroup {
@@ -353,7 +354,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
         <DataTable
           data={filtered}
           columns={columns}
-          showSearch={false}
+          searchPlaceholder="بحث برقم الفاتورة أو الصنف أو العميل..."
           defaultPageSize={50}
           onExportExcel={handleExport}
         />
@@ -366,12 +367,17 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
 type Section = 'invoices'|'records'|'returns'|'customers'|'prices'
 
 export default function Sales() {
+  const canAdd = usePermission('sales', 'add')
+  const canEdit = usePermission('sales', 'edit')
+  const canDelete = usePermission('sales', 'delete')
+
   const [drawerOpen,setDrawerOpen]=useState(false); const [editGroup,setEditGroup]=useState<SaleGroup|null>(null)
   const [detailGroup,setDetailGroup]=useState<SaleGroup|null>(null); const [detailOpen,setDetailOpen]=useState(false)
   const [deleteInvoice,setDeleteInvoice]=useState<SaleGroup|null>(null); const [activeSection,setActiveSection]=useState<Section>('invoices')
   const qc = useQueryClient()
   const [filterDateFrom,setFilterDateFrom]=useState(''); const [filterDateTo,setFilterDateTo]=useState('')
   const [filterCustomer,setFilterCustomer]=useState(''); const [filterProduct,setFilterProduct]=useState('')
+  const [filterInvoice,setFilterInvoice]=useState('')
 
   const today=todayISO()
   const {data:sales,isLoading}=useSales(); const {data:customers}=useCustomers(); const {data:products}=useProducts()
@@ -387,8 +393,16 @@ export default function Sales() {
 
   const filteredSales=useMemo(()=>{let data=sales??[];if(filterCustomer)data=data.filter(s=>s.customer_id===filterCustomer);if(filterProduct)data=data.filter(s=>s.product_id===filterProduct);if(filterDateFrom)data=data.filter(s=>s.date>=filterDateFrom);if(filterDateTo)data=data.filter(s=>s.date<=filterDateTo);return data},[sales,filterCustomer,filterProduct,filterDateFrom,filterDateTo])
 
-  const invoiceGroups=useMemo(()=>groupSales(filteredSales.filter(s=>s.transaction_type!=='مرتجع_مبيعات')),[filteredSales])
-  const returnGroups=useMemo(()=>groupSales(filteredSales.filter(s=>s.transaction_type==='مرتجع_مبيعات')),[filteredSales])
+  const invoiceGroups=useMemo(()=>{
+    let groups=groupSales(filteredSales.filter(s=>s.transaction_type!=='مرتجع_مبيعات'))
+    if(filterInvoice) groups=groups.filter(g=>g.invoice_number?.toLowerCase().includes(filterInvoice.toLowerCase()))
+    return groups
+  },[filteredSales,filterInvoice])
+  const returnGroups=useMemo(()=>{
+    let groups=groupSales(filteredSales.filter(s=>s.transaction_type==='مرتجع_مبيعات'))
+    if(filterInvoice) groups=groups.filter(g=>g.invoice_number?.toLowerCase().includes(filterInvoice.toLowerCase()))
+    return groups
+  },[filteredSales,filterInvoice])
   const allSaleRecords=useMemo(()=>sales??[],[sales])
 
   const customerOptions=(customers??[]).map(c=>({value:c.id,label:c.name_ar}))
@@ -406,36 +420,20 @@ export default function Sales() {
     if(isLoading) return <div className="space-y-2 p-5">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div>
     if(groups.length===0) return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground py-16">
-        <div className="text-center"><ShoppingBag className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد فواتير</p><Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}><Plus className="w-3.5 h-3.5"/>إضافة فاتورة</Button></div>
+        <div className="text-center"><ShoppingBag className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد فواتير</p>{canAdd&&<Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}><Plus className="w-3.5 h-3.5"/>إضافة فاتورة</Button>}</div>
       </div>
     )
-    return (
-      <div className="overflow-auto max-h-[520px] flex-1">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10"><tr className="border-b border-border bg-muted/80">{['رقم الفاتورة','العميل','التاريخ','الأصناف','الإجمالي','الربح','النوع','الإجراءات'].map(h=><th key={h} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {groups.map(g=>(
-              <tr key={g.key} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-3">{g.invoice_number?<span className="font-mono text-xs bg-success/10 text-success px-2 py-0.5 rounded font-medium">{g.invoice_number}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
-                <td className="px-4 py-3 font-medium">{g.customer_name}</td>
-                <td className="px-4 py-3 text-muted-foreground text-sm">{formatDate(g.date)}</td>
-                <td className="px-4 py-3"><button className="text-primary hover:underline text-xs font-medium" onClick={()=>{setDetailGroup(g);setDetailOpen(true)}}>{g.items.length} {g.items.length===1?'صنف':'أصناف'}</button></td>
-                <td className="px-4 py-3 font-semibold">{formatNumber(g.total_amount)}</td>
-                <td className={cn('px-4 py-3 font-medium text-sm',g.total_profit>=0?'text-success':'text-danger')}>{formatNumber(g.total_profit)}</td>
-                <td className="px-4 py-3">{g.source==='google_sheet'?<Badge variant="secondary" className="text-xs">Sheets</Badge>:g.invoice_number?.startsWith('SIG')?<Badge variant="outline" className="text-xs">Excel</Badge>:g.invoice_number?<Badge className="text-xs bg-success/15 text-success border-success/20">يدوي</Badge>:<Badge variant="outline" className="text-xs">قديم</Badge>}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-0.5">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={()=>{setDetailGroup(g);setDetailOpen(true)}}><Eye className="w-3.5 h-3.5"/></Button>
-                    {g.source!=='google_sheet'&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={()=>{setEditGroup(g);setDrawerOpen(true)}}><Pencil className="w-3.5 h-3.5"/></Button>}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={()=>setDeleteInvoice(g)}><Trash2 className="w-3.5 h-3.5"/></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
+    const cols: ColumnDef<SaleGroup>[] = [
+      { accessorKey:'invoice_number', header:'رقم الفاتورة', cell:({getValue})=>{const v=getValue() as string|null;return v?<span className="font-mono text-xs bg-success/10 text-success px-2 py-0.5 rounded font-medium">{v}</span>:<span className="text-muted-foreground text-xs">—</span>} },
+      { accessorFn:r=>r.customer_name, id:'customer', header:'العميل', cell:({getValue})=><span className="font-medium text-sm">{getValue() as string}</span> },
+      { accessorKey:'date', header:'التاريخ', cell:({getValue})=><span className="text-muted-foreground text-sm whitespace-nowrap">{formatDate(getValue() as string)}</span> },
+      { id:'items', header:'الأصناف', enableSorting:false, cell:({row})=><button className="text-primary hover:underline text-xs font-medium" onClick={()=>{setDetailGroup(row.original);setDetailOpen(true)}}>{row.original.items.length} {row.original.items.length===1?'صنف':'أصناف'}</button> },
+      { accessorKey:'total_amount', header:'الإجمالي', cell:({getValue})=><span className="font-semibold">{formatNumber(getValue() as number)}</span> },
+      { id:'profit', header:'الربح', cell:({row})=><span className={cn('font-medium text-sm',row.original.total_profit>=0?'text-success':'text-danger')}>{formatNumber(row.original.total_profit)}</span> },
+      { id:'source', header:'النوع', enableSorting:false, cell:({row})=>{const g=row.original;return g.source==='google_sheet'?<Badge variant="secondary" className="text-xs">Sheets</Badge>:g.invoice_number?.startsWith('SIG')?<Badge variant="outline" className="text-xs">Excel</Badge>:g.invoice_number?<Badge className="text-xs bg-success/15 text-success border-success/20">يدوي</Badge>:<Badge variant="outline" className="text-xs">قديم</Badge>} },
+      { id:'actions', header:'', enableSorting:false, cell:({row})=>{const g=row.original;return <div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={()=>{setDetailGroup(g);setDetailOpen(true)}}><Eye className="w-3.5 h-3.5"/></Button>{canEdit&&g.source!=='google_sheet'&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={()=>{setEditGroup(g);setDrawerOpen(true)}}><Pencil className="w-3.5 h-3.5"/></Button>}{canDelete&&<Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={()=>setDeleteInvoice(g)}><Trash2 className="w-3.5 h-3.5"/></Button>}</div>} },
+    ]
+    return <div className="p-4 flex-1 overflow-auto"><DataTable data={groups} columns={cols} showSearch={false} defaultPageSize={20}/></div>
   }
 
   return (
@@ -470,12 +468,14 @@ export default function Sales() {
           </div>
 
           {/* Quick Actions */}
-          <div className="p-3 border-b border-border space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
-            <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}>
-              <Plus className="w-3.5 h-3.5"/>فاتورة مبيعات
-            </Button>
-          </div>
+          {canAdd && (
+            <div className="p-3 border-b border-border space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
+              <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}>
+                <Plus className="w-3.5 h-3.5"/>فاتورة مبيعات
+              </Button>
+            </div>
+          )}
 
           {/* Sections */}
           <div className="flex-1 p-2 space-y-0.5">
@@ -499,9 +499,10 @@ export default function Sales() {
             <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-border bg-background/50 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
                 <QuickDateFilter from={filterDateFrom} to={filterDateTo} onFromChange={setFilterDateFrom} onToChange={setFilterDateTo}/>
+                <Input placeholder="رقم الفاتورة..." value={filterInvoice} onChange={e=>setFilterInvoice(e.target.value)} className="h-8 text-sm w-36" dir="ltr"/>
                 <div className="w-40"><Combobox options={[{value:'',label:'كل العملاء'},...customerOptions]} value={filterCustomer} onValueChange={setFilterCustomer} placeholder="كل العملاء"/></div>
                 <div className="w-40"><Combobox options={[{value:'',label:'كل الأصناف'},...productOptions]} value={filterProduct} onValueChange={setFilterProduct} placeholder="كل الأصناف"/></div>
-                {(filterDateFrom||filterDateTo||filterCustomer||filterProduct)&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterCustomer('');setFilterProduct('')}}>مسح</Button>}
+                {(filterDateFrom||filterDateTo||filterCustomer||filterProduct||filterInvoice)&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterCustomer('');setFilterProduct('');setFilterInvoice('')}}>مسح</Button>}
               </div>
               <span className="text-xs text-muted-foreground">{activeSection==='invoices'?invoiceGroups.length:returnGroups.length} فاتورة</span>
             </div>

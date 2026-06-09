@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { supabase, fetchAllPages } from '@/lib/supabase'
 import { mockWaste } from '@/lib/mockData'
 import type { WasteLog } from '@/types'
 
@@ -10,20 +10,24 @@ export function useWaste(filters?: { date?: string; month?: number; year?: numbe
     queryKey: ['waste', filters],
     queryFn: async () => {
       if (USE_MOCK) return mockWaste
-      const q = supabase
-        .from('waste_log')
-        .select('*, product:products(*)')
-        .order('date', { ascending: false })
-        .limit(50000)
-      if (filters?.date) q.eq('date', filters.date)
-      if (filters?.month && filters?.year) {
-        const from = `${filters.year}-${String(filters.month).padStart(2, '0')}-01`
-        const to = new Date(filters.year, filters.month, 0).toISOString().split('T')[0]
-        q.gte('date', from).lte('date', to)
-      }
-      const { data, error } = await q
-      if (error) throw error
-      return data as WasteLog[]
+
+      const from = filters?.month && filters?.year
+        ? `${filters.year}-${String(filters.month).padStart(2, '0')}-01`
+        : undefined
+      const to = filters?.month && filters?.year
+        ? new Date(filters.year, filters.month, 0).toISOString().split('T')[0]
+        : undefined
+
+      return fetchAllPages<WasteLog>((start, end) => {
+        const q = supabase
+          .from('waste_log')
+          .select('*, product:products(*)')
+          .order('date', { ascending: false })
+          .range(start, end)
+        if (filters?.date) q.eq('date', filters.date)
+        if (from && to) q.gte('date', from).lte('date', to)
+        return q
+      })
     },
   })
 }
@@ -33,15 +37,15 @@ export function useWasteByRange(from: string, to: string) {
     queryKey: ['waste', 'range', from, to],
     queryFn: async () => {
       if (USE_MOCK) return mockWaste.filter(w => w.date >= from && w.date <= to)
-      const { data, error } = await supabase
-        .from('waste_log')
-        .select('*, product:products(*)')
-        .gte('date', from)
-        .lte('date', to)
-        .order('date', { ascending: false })
-        .limit(50000)
-      if (error) throw error
-      return data as WasteLog[]
+      return fetchAllPages<WasteLog>((start, end) =>
+        supabase
+          .from('waste_log')
+          .select('*, product:products(*)')
+          .gte('date', from)
+          .lte('date', to)
+          .order('date', { ascending: false })
+          .range(start, end)
+      )
     },
   })
 }

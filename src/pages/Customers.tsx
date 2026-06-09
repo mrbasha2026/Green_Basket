@@ -18,11 +18,16 @@ import type { ColumnDef } from '@tanstack/react-table'
 import type { Sale } from '@/types'
 import { exportToExcel } from '@/lib/excel'
 import { BarChart2, Users, Plus, Pencil } from 'lucide-react'
+import { usePermission } from '@/hooks/usePermissions'
 
 type CustomerType = 'مستشفى' | 'فندق' | 'مطعم' | 'تجزئة'
 type View = 'analytics' | 'manage'
 
 export default function Customers() {
+  const canAdd = usePermission('customers', 'add')
+  const canEdit = usePermission('customers', 'edit')
+  const canExport = usePermission('customers', 'export')
+
   const today = todayISO()
   const [view, setView] = useState<View>('analytics')
 
@@ -227,12 +232,12 @@ export default function Customers() {
                 data={sales ?? []}
                 columns={salesColumns}
                 searchPlaceholder="بحث..."
-                onExportExcel={async () => {
+                onExportExcel={canExport ? async () => {
                   await exportToExcel('customers-sales.xlsx',
                     ['التاريخ', 'الصنف', 'الكمية(كج)', 'السعر', 'الإجمالي'],
                     (sales ?? []).map(s => [s.date, s.product?.name_ar ?? '', s.qty_kg, s.price_per_kg, s.total_amount])
                   )
-                }}
+                } : undefined}
               />
             </CardContent>
           </Card>
@@ -247,9 +252,11 @@ export default function Customers() {
               <CardTitle className="text-base">إدارة العملاء</CardTitle>
               <div className="flex items-center gap-2">
                 <Input placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-40 text-sm" />
-                <Button size="sm" className="gap-1.5" onClick={() => { setEditItem({ name_ar: '', type: 'تجزئة', is_active: true }); setDialogOpen(true) }}>
-                  <Plus className="w-3.5 h-3.5" />إضافة عميل
-                </Button>
+                {canAdd && (
+                  <Button size="sm" className="gap-1.5" onClick={() => { setEditItem({ name_ar: '', type: 'تجزئة', is_active: true }); setDialogOpen(true) }}>
+                    <Plus className="w-3.5 h-3.5" />إضافة عميل
+                  </Button>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -274,10 +281,12 @@ export default function Customers() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={() => { setEditItem({ id: c.id, name_ar: c.name_ar, type: c.type, is_active: c.is_active }); setDialogOpen(true) }}>
-                          <Pencil className="w-3 h-3" />
-                        </Button>
+                        {canEdit && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => { setEditItem({ id: c.id, name_ar: c.name_ar, type: c.type, is_active: c.is_active }); setDialogOpen(true) }}>
+                            <Pencil className="w-3 h-3" />
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}

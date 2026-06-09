@@ -1,130 +1,119 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+import type { Action, Role, UserProfile } from '@/types/permissions'
 
-export type AppRole = 'admin' | 'manager' | 'viewer'
-
-export interface UserProfile {
-  id: string
-  email: string
-  role: AppRole
-  name?: string
-  created_at?: string
-}
-
-// Permission map per role
-const PERMISSIONS: Record<AppRole, string[]> = {
-  admin: [
-    'purchases.view', 'purchases.add', 'purchases.edit',
-    'sales.view', 'sales.add', 'sales.edit',
-    'inventory.view', 'inventory.edit',
-    'waste.view', 'waste.add',
-    'profits.view', 'reports.view',
-    'cost.view', 'cost.edit',
-    'customers.view', 'customers.edit',
-    'settings.view', 'settings.edit',
-    'users.view', 'users.edit',
-    'sync.view', 'sync.trigger',
-    'dashboard.view',
-  ],
-  manager: [
-    'purchases.view', 'purchases.add', 'purchases.edit',
-    'sales.view', 'sales.add', 'sales.edit',
-    'inventory.view', 'inventory.edit',
-    'waste.view', 'waste.add',
-    'profits.view', 'reports.view',
-    'cost.view',
-    'customers.view', 'customers.edit',
-    'settings.view',
-    'dashboard.view',
-  ],
-  viewer: [
-    'purchases.view', 'sales.view', 'inventory.view',
-    'waste.view', 'profits.view', 'reports.view',
-    'cost.view', 'customers.view', 'dashboard.view',
-  ],
-}
-
-// Fetch current user's role
-export function useUserRole() {
+// ملف المستخدم الحالي مع دوره
+export function useCurrentUser() {
   const { session } = useAuth()
   const userId = session?.user?.id
 
-  return useQuery<AppRole>({
-    queryKey: ['user_role', userId],
+  return useQuery<UserProfile | null>({
+    queryKey: ['current_user_profile', userId],
     enabled: !!userId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      if (!userId) return 'admin'
-      try {
-        const { data } = await supabase
-          .from('user_profiles')
-          .select('role')
-          .eq('id', userId)
-          .maybeSingle()
-        return (data?.role as AppRole) ?? 'admin'
-      } catch {
-        return 'admin'
-      }
+      if (!userId) return null
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('*, role:roles(*)')
+        .eq('id', userId)
+        .maybeSingle()
+      return data as UserProfile | null
     },
   })
 }
 
-// Check if current user has a permission
-export function usePermission(permission: string): boolean {
-  const { data: role } = useUserRole()
-  const r = role ?? 'admin'
-  return PERMISSIONS[r]?.includes(permission) ?? true
-}
+// صلاحيات دور المستخدم الحالي (screen → Set<action>)
+export function useCurrentUserPermissions() {
+  const { session } = useAuth()
+  const userId = session?.user?.id
 
-// Fetch all users with their roles (admin only)
-export function useAllUsers() {
-  return useQuery<UserProfile[]>({
-    queryKey: ['all_users'],
+  return useQuery<Map<string, Set<Action>>>({
+    queryKey: ['current_user_permissions', userId],
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('id, email, role, name, created_at')
-        .order('created_at', { ascending: true })
-      if (error) throw error
-      return (data ?? []) as UserProfile[]
-    },
-  })
-}
+      if (!userId) return new Map()
 
-// Upsert user profile (set role)
-export function useUpsertUserRole() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ id, role, email, name }: { id: string; role: AppRole; email?: string; name?: string }) => {
-      const { error } = await supabase
+      const profile = await supabase
         .from('user_profiles')
-        .upsert({ id, role, email, name }, { onConflict: 'id' })
-      if (error) throw error
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['all_users'] })
-      qc.invalidateQueries({ queryKey: ['user_role'] })
-    },
-  })
-}
+        .select('role_id')
+        .eq('id', userId)
+        .maybeSingle()
 
-// Invite a new user via Supabase Auth (admin API)
-export function useInviteUser() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ email, role, name }: { email: string; role: AppRole; name: string }) => {
-      const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-        data: { name, role },
-      })
-      if (error) throw error
-      if (data.user) {
-        await supabase.from('user_profiles').upsert(
-          { id: data.user.id, email, role, name },
-          { onConflict: 'id' }
-        )
+      // إذا لم يكن للمستخدم دور، يُعامَل كمدير نظام (للحساب الأول)
+      if (!profile.data?.role_id) {
+        const { data: adminRole } = await supabase
+          .from('roles')
+          .select('id')
+          .eq('is_system', true)
+          .maybeSingle()
+
+        if (!adminRole) return new Map()
+
+        const { data: perms } = await supabase
+          .from('role_permissions')
+          .select('screen, action')
+          .eq('role_id', adminRole.id)
+
+        const map = new Map<string, Set<Action>>()
+        for (const p of perms ?? []) {
+          if (!map.has(p.screen)) map.set(p.screen, new Set())
+          map.get(p.screen)!.add(p.action as Action)
+        }
+        return map
       }
+
+      const { data: perms } = await supabase
+        .from('role_permissions')
+        .select('screen, action')
+        .eq('role_id', profile.data.role_id)
+
+      const map = new Map<string, Set<Action>>()
+      for (const p of perms ?? []) {
+        if (!map.has(p.screen)) map.set(p.screen, new Set())
+        map.get(p.screen)!.add(p.action as Action)
+      }
+      return map
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['all_users'] }) },
   })
+}
+
+// hook رئيسي: هل للمستخدم هذه الصلاحية؟
+export function usePermission(screen: string, action: Action): boolean {
+  const { data: perms, isLoading } = useCurrentUserPermissions()
+  if (isLoading || !perms) return false
+  return perms.get(screen)?.has(action) ?? false
+}
+
+// نفس الـ hook مع إظهار حالة التحميل
+export function usePermissionWithLoading(screen: string, action: Action): { allowed: boolean; isLoading: boolean } {
+  const { data: perms, isLoading } = useCurrentUserPermissions()
+  if (isLoading) return { allowed: false, isLoading: true }
+  if (!perms) return { allowed: false, isLoading: false }
+  return { allowed: perms.get(screen)?.has(action) ?? false, isLoading: false }
+}
+
+// للتوافق مع الكود القديم: usePermission('purchases.view') → usePermission('purchases', 'view')
+export function useLegacyPermission(permission: string): boolean {
+  const parts = permission.split('.')
+  const action = parts.pop() as Action
+  const screen = parts.join('.')
+  return usePermission(screen, action)
+}
+
+// الدور الحالي للمستخدم
+export function useCurrentRole(): Role | null {
+  const { data: user } = useCurrentUser()
+  return user?.role ?? null
+}
+
+// للتوافق مع الكود القديم — يُرجع اسم الدور
+export function useUserRole() {
+  const { data: user, isLoading } = useCurrentUser()
+  return {
+    data: user?.role?.name ?? null,
+    isLoading,
+  }
 }

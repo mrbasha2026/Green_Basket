@@ -11,15 +11,16 @@ import { useSalesByRange } from '@/hooks/useSales'
 import { useWaste } from '@/hooks/useWaste'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { formatNumber, todayISO } from '@/lib/utils'
-import type { Sale } from '@/types'
 import { cn } from '@/lib/utils'
 import { FileDown, BarChart2, Table2, Sliders } from 'lucide-react'
+import { usePermission } from '@/hooks/usePermissions'
 
 type CostMode = 'direct' | 'with_waste'
 type ProfitsSection = 'chart' | 'table'
+type GroupBy = 'product' | 'customer'
 
 interface ProfitRow {
-  product_id: string
+  id: string
   name: string
   avgSellPrice: number
   avgWAC: number
@@ -33,12 +34,15 @@ interface ProfitRow {
 }
 
 export default function Profits() {
+  const canExport = usePermission('profits', 'export')
+
   const today = todayISO()
   const thirtyAgo = new Date(today)
   thirtyAgo.setDate(thirtyAgo.getDate() - 30)
   const [fromDate, setFromDate] = useState(thirtyAgo.toISOString().split('T')[0])
   const [toDate, setToDate] = useState(today)
   const [costMode, setCostMode] = useState<CostMode>('direct')
+  const [groupBy, setGroupBy] = useState<GroupBy>('product')
   const [activeSection, setActiveSection] = useState<ProfitsSection>('chart')
 
   const { data: sales, isLoading } = useSalesByRange(fromDate, toDate)
@@ -61,32 +65,36 @@ export default function Profits() {
   }, [wasteInRange, latestCosts])
 
   const profitRows = useMemo<ProfitRow[]>(() => {
-    const map = new Map<string, { name: string; qty: number; revenue: number; cost: number; sells: Sale[] }>()
+    const map = new Map<string, { name: string; qty: number; revenue: number; cost: number }>()
     sales?.forEach(s => {
-      const name = s.product?.name_ar ?? s.product_id
-      const existing = map.get(s.product_id) ?? { name, qty: 0, revenue: 0, cost: 0, sells: [] }
-      // Use WAC from sale record, fallback to latestCosts
+      const key  = groupBy === 'product' ? s.product_id : s.customer_id
+      const name = groupBy === 'product'
+        ? (s.product?.name_ar ?? s.product_id)
+        : (s.customer?.name_ar ?? s.customer_id)
+      const existing = map.get(key) ?? { name, qty: 0, revenue: 0, cost: 0 }
       const purchaseCost = s.total_purchase > 0
         ? s.total_purchase
         : s.qty_kg * (latestCosts?.[s.product_id] ?? 0)
-      map.set(s.product_id, {
+      map.set(key, {
         ...existing,
         qty: existing.qty + s.qty_kg,
         revenue: existing.revenue + s.total_amount,
         cost: existing.cost + purchaseCost,
-        sells: [...existing.sells, s],
       })
     })
 
-    return Array.from(map.entries()).map(([product_id, r]) => {
-      const totalWasteCost = costMode === 'with_waste' ? (wasteCostByProduct[product_id] ?? 0) : 0
+    return Array.from(map.entries()).map(([id, r]) => {
+      // تكلفة الهدر تُحسب فقط عند التجميع حسب الصنف
+      const totalWasteCost = groupBy === 'product' && costMode === 'with_waste'
+        ? (wasteCostByProduct[id] ?? 0)
+        : 0
       const avgSellPrice = r.qty > 0 ? r.revenue / r.qty : 0
-      const avgWAC = r.qty > 0 ? r.cost / r.qty : (latestCosts?.[product_id] ?? 0)
+      const avgWAC = r.qty > 0 ? r.cost / r.qty : (groupBy === 'product' ? (latestCosts?.[id] ?? 0) : 0)
       const totalProfit = r.revenue - r.cost - totalWasteCost
       const marginPct = r.revenue > 0 ? (totalProfit / r.revenue) * 100 : 0
 
       return {
-        product_id,
+        id,
         name: r.name,
         avgSellPrice,
         avgWAC,
@@ -99,7 +107,7 @@ export default function Profits() {
         totalProfit,
       }
     }).sort((a, b) => b.totalProfit - a.totalProfit)
-  }, [sales, latestCosts, wasteCostByProduct, costMode])
+  }, [sales, latestCosts, wasteCostByProduct, costMode, groupBy])
 
   const totalRevenue = useMemo(() => profitRows.reduce((s, r) => s + r.totalRevenue, 0), [profitRows])
   const totalCost = useMemo(() => profitRows.reduce((s, r) => s + r.totalCost, 0), [profitRows])
@@ -112,7 +120,7 @@ export default function Profits() {
   )
 
   const columns = useMemo<ColumnDef<ProfitRow>[]>(() => [
-    { accessorKey: 'name', header: 'الصنف' },
+    { accessorKey: 'name', header: groupBy === 'product' ? 'الصنف' : 'العميل' },
     { accessorKey: 'avgWAC', header: 'م.و.م/كج', cell: ({ getValue }) => formatNumber(getValue() as number) },
     { accessorKey: 'avgSellPrice', header: 'سعر البيع', cell: ({ getValue }) => formatNumber(getValue() as number) },
     {
@@ -149,7 +157,7 @@ export default function Profits() {
         return <span className={cn('font-bold', v >= 0 ? 'text-success' : 'text-danger')}>{formatNumber(v)}</span>
       },
     },
-  ], [costMode])
+  ], [costMode, groupBy])
 
   async function handleExportPDF() {
     if (profitRows.length === 0) return
@@ -271,6 +279,18 @@ export default function Profits() {
             <QuickDateFilter from={fromDate} to={toDate} onFromChange={setFromDate} onToChange={setToDate} className="flex-col items-stretch gap-1.5" />
           </div>
 
+          {/* Group by */}
+          <div className="p-3 border-b border-border space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wide">تحليل حسب</p>
+            {(['product', 'customer'] as const).map(g => (
+              <button key={g} onClick={() => setGroupBy(g)}
+                className={cn('w-full text-right px-3 py-2 rounded-lg text-xs font-medium transition-colors border',
+                  groupBy === g ? 'bg-primary text-primary-foreground border-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted')}>
+                {g === 'product' ? 'حسب الصنف' : 'حسب العميل'}
+              </button>
+            ))}
+          </div>
+
           {/* Cost mode */}
           <div className="p-3 border-b border-border space-y-2">
             <p className="text-xs font-semibold text-muted-foreground px-1 uppercase tracking-wide flex items-center gap-1.5"><Sliders className="w-3.5 h-3.5"/>وضع التكلفة</p>
@@ -284,11 +304,13 @@ export default function Profits() {
           </div>
 
           {/* Export */}
-          <div className="p-3 border-b border-border">
-            <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={handleExportPDF}>
-              <FileDown className="w-3.5 h-3.5"/>تصدير PDF
-            </Button>
-          </div>
+          {canExport && (
+            <div className="p-3 border-b border-border">
+              <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs" onClick={handleExportPDF}>
+                <FileDown className="w-3.5 h-3.5"/>تصدير PDF
+              </Button>
+            </div>
+          )}
 
           {/* Sections */}
           <div className="flex-1 p-2 space-y-0.5">
@@ -330,7 +352,7 @@ export default function Profits() {
                 {isLoading ? (
                   <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
                 ) : (
-                  <DataTable data={profitRows} columns={columns} searchPlaceholder="بحث عن صنف..." />
+                  <DataTable data={profitRows} columns={columns} searchPlaceholder={groupBy === 'product' ? 'بحث عن صنف...' : 'بحث عن عميل...'} />
                 )}
               </CardContent>
             </Card>

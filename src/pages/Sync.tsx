@@ -20,6 +20,7 @@ import { formatDateTime } from '@/lib/utils'
 import type { SyncLog, SyncPendingReview } from '@/types'
 import { RefreshCw, CheckCircle, XCircle, Clock, Settings2, Trash2, ShoppingCart, TrendingUp, Package, Plus } from 'lucide-react'
 import { monthName, todayISO } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermissions'
 
 const QUICK_ACTIONS = [
   { to: '/purchases', label: 'فاتورة مشتريات', icon: ShoppingCart, color: 'bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/15' },
@@ -46,6 +47,8 @@ function currentMonthKey() {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Sync() {
+  const canImport = usePermission('sync', 'import')
+
   const { data: logs, isLoading: logsLoading } = useSyncLogs()
   const { data: pending } = useSyncPendingReview()
   const { data: customers } = useCustomers()
@@ -342,7 +345,7 @@ export default function Sync() {
               <Settings2 className="w-4 h-4" />
               إعداد ومزامنة ملفات Google Sheets الشهرية
             </CardTitle>
-            <div className="flex gap-2">
+            {canImport && <div className="flex gap-2">
               <Button size="sm" variant="outline" disabled={syncing || isDeleting}
                 className="gap-1.5 h-8 text-xs"
                 onClick={async () => {
@@ -365,7 +368,7 @@ export default function Sync() {
                 }}>
                 <Trash2 className="w-3.5 h-3.5" />تحديث كامل للكل
               </Button>
-            </div>
+            </div>}
           </div>
         </CardHeader>
         <CardContent>

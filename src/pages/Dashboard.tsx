@@ -14,9 +14,10 @@ import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#dc2626', '#8b5cf6', '#ec4899']
 
-function getMonthStart() {
+function getThirtyDaysAgo() {
   const d = new Date(todayISO() + 'T12:00:00')
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  d.setDate(d.getDate() - 30)
+  return d.toISOString().split('T')[0]
 }
 
 function KpiCard({ title, value, unit, sub, icon: Icon, color, trend }: {
@@ -53,7 +54,7 @@ function KpiCard({ title, value, unit, sub, icon: Icon, color, trend }: {
 export default function Dashboard() {
   const navigate = useNavigate()
   const today = todayISO()
-  const [dateFrom, setDateFrom] = useState(getMonthStart())
+  const [dateFrom, setDateFrom] = useState(getThirtyDaysAgo())
   const [dateTo, setDateTo] = useState(today)
 
   const { data: salesRange, isLoading: salesLoading } = useSalesByRange(dateFrom, dateTo)

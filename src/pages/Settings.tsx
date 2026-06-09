@@ -5,16 +5,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { useAllUsers, useUpsertUserRole, usePermission, type AppRole } from '@/hooks/usePermissions'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { usePermission } from '@/hooks/usePermissions'
+import { useAllUsers, useUpsertUserProfile, useCreateUser, useAllRoles, useRolePermissions, useCreateRole, useDeleteRole } from '@/hooks/useRoles'
 import { useAuth } from '@/hooks/useAuth'
 import { useProducts } from '@/hooks/useProducts'
 import { useCustomers } from '@/hooks/useCustomers'
 import { useSiteSettings, useUpsertSiteSettings } from '@/hooks/useSiteSettings'
-import { Building2, UserCog, Settings as SettingsIcon, Download, Archive } from 'lucide-react'
+import { RoleEditor } from '@/components/permissions/RoleEditor'
+import { Building2, UserCog, Settings as SettingsIcon, Download, Archive, Shield, Plus, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-// ── Types ──────────────────────────────────────────────────────────────────────
-type Section = 'company' | 'users' | 'system' | 'backup'
 
 // ── Company Settings ───────────────────────────────────────────────────────────
 function CompanyTab() {
@@ -118,53 +118,94 @@ function CompanyTab() {
 // ── Users Tab ──────────────────────────────────────────────────────────────────
 function UsersTab() {
   const { data: users, isLoading } = useAllUsers()
-  const { mutateAsync: upsertRole, isPending } = useUpsertUserRole()
-  const canEdit = usePermission('users.edit')
+  const { data: roles } = useAllRoles()
+  const { mutateAsync: upsertProfile } = useUpsertUserProfile()
+  const { mutateAsync: createUser, isPending: creating } = useCreateUser()
+  const canEdit = usePermission('settings.users', 'edit')
+  const canAdd = usePermission('settings.users', 'add')
   const { session } = useAuth()
-  const ROLE_LABELS: Record<AppRole, string> = { admin: 'مدير', manager: 'مشرف', viewer: 'مشاهد' }
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState({ email: '', name: '', password: '', role_id: '' })
+  const [showPassword, setShowPassword] = useState(false)
+
+  async function handleCreate() {
+    if (!createForm.email || !createForm.password || !createForm.role_id) return
+    try {
+      await createUser(createForm)
+      toast.success('تم إنشاء المستخدم بنجاح')
+      setShowCreate(false)
+      setCreateForm({ email: '', name: '', password: '', role_id: '' })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'حدث خطأ'
+      toast.error(msg)
+    }
+  }
+
+  async function handleRegisterSelf() {
+    if (!session?.user) return
+    const adminRole = roles?.find(r => r.is_system)
+    if (!adminRole) return
+    await upsertProfile({ id: session.user.id, email: session.user.email ?? '', name: session.user.user_metadata?.name ?? 'مدير', role_id: adminRole.id })
+    toast.success('تم تسجيلك مديراً للنظام')
+  }
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-4">جاري التحميل...</p>
 
   return (
     <div className="space-y-4">
-      {!canEdit && <div className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">أنت في وضع المشاهدة فقط — تغيير الأدوار يتطلب صلاحية مدير</div>}
-      <div className="text-xs text-muted-foreground space-y-0.5 p-3 bg-muted/30 rounded-lg border border-border/50">
-        <p><strong>مدير:</strong> صلاحيات كاملة + إدارة المستخدمين والإعدادات</p>
-        <p><strong>مشرف:</strong> إضافة وتعديل المشتريات والمبيعات والمخزون</p>
-        <p><strong>مشاهد:</strong> عرض فقط بدون تعديل</p>
+      {!canEdit && (
+        <div className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
+          أنت في وضع المشاهدة فقط
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold">المستخدمون</h3>
+        {canAdd && (
+          <Button size="sm" className="gap-1" onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" />إضافة مستخدم
+          </Button>
+        )}
       </div>
+
       {(users ?? []).length === 0 ? (
         <div className="text-center py-8 space-y-3">
           <p className="text-sm text-muted-foreground">لا توجد بيانات مستخدمين</p>
-          {session?.user && (
-            <Button onClick={() => upsertRole({ id: session.user.id, email: session.user.email ?? '', role: 'admin', name: session.user.user_metadata?.name ?? session.user.email ?? 'مدير' })} disabled={isPending}>
-              {isPending ? 'جاري...' : 'سجّل نفسك مديراً للنظام'}
-            </Button>
+          {session?.user && roles && roles.length > 0 && (
+            <Button onClick={handleRegisterSelf}>سجّل نفسك مديراً للنظام</Button>
           )}
-          <p className="text-xs text-muted-foreground">تأكد من تشغيل SQL الخاص بجدول user_profiles في Supabase</p>
+          <p className="text-xs text-muted-foreground">تأكد من تشغيل migrations/permissions.sql في Supabase</p>
         </div>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-muted/30 border-b border-border">{['الاسم','البريد الإلكتروني','الدور',''].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+            <thead>
+              <tr className="bg-muted/30 border-b border-border">
+                {['الاسم', 'البريد الإلكتروني', 'الدور', ''].map(h => (
+                  <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
               {(users ?? []).map(u => (
                 <tr key={u.id} className="border-b last:border-b-0 border-border/50 hover:bg-muted/20">
                   <td className="px-3 py-2 font-medium">{u.name ?? '—'}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs" dir="ltr">{u.email}</td>
                   <td className="px-3 py-2">
-                    <Badge variant="outline" className={u.role === 'admin' ? 'text-primary' : u.role === 'manager' ? 'text-warning' : 'text-muted-foreground'}>
-                      {ROLE_LABELS[u.role]}
-                    </Badge>
+                    <Badge variant="outline">{u.role?.name ?? '—'}</Badge>
                   </td>
                   <td className="px-3 py-2">
                     {canEdit && (
-                      <Select value={u.role} onValueChange={v => upsertRole({ id: u.id, role: v as AppRole, email: u.email, name: u.name })}>
-                        <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <Select
+                        value={u.role_id ?? ''}
+                        onValueChange={v => upsertProfile({ id: u.id, role_id: v, email: u.email, name: u.name })}
+                      >
+                        <SelectTrigger className="w-32 h-8 text-xs"><SelectValue placeholder="اختر دوراً" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="admin">مدير</SelectItem>
-                          <SelectItem value="manager">مشرف</SelectItem>
-                          <SelectItem value="viewer">مشاهد</SelectItem>
+                          {(roles ?? []).map(r => (
+                            <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     )}
@@ -175,6 +216,168 @@ function UsersTab() {
           </table>
         </div>
       )}
+
+      {/* Create User Dialog */}
+      <Dialog open={showCreate} onOpenChange={v => { setShowCreate(v); if (!v) setCreateForm({ email: '', name: '', password: '', role_id: '' }) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>إضافة مستخدم جديد</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">الاسم</Label>
+              <Input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} placeholder="اسم المستخدم" className="h-9" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">البريد الإلكتروني</Label>
+              <Input value={createForm.email} onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} placeholder="user@example.com" dir="ltr" className="h-9" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">كلمة المرور</Label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  value={createForm.password}
+                  onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
+                  placeholder="كلمة المرور"
+                  dir="ltr"
+                  className="h-9 pl-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                >
+                  {showPassword ? 'إخفاء' : 'إظهار'}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">الدور</Label>
+              <Select value={createForm.role_id} onValueChange={v => setCreateForm(f => ({ ...f, role_id: v }))}>
+                <SelectTrigger className="h-9"><SelectValue placeholder="اختر دوراً" /></SelectTrigger>
+                <SelectContent>
+                  {(roles ?? []).map(r => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>إلغاء</Button>
+            <Button onClick={handleCreate} disabled={creating || !createForm.email || !createForm.password || !createForm.role_id}>
+              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'إنشاء المستخدم'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// ── Roles Tab ──────────────────────────────────────────────────────────────────
+function RolesTab() {
+  const { data: roles, isLoading } = useAllRoles()
+  const canEdit = usePermission('settings.roles', 'edit')
+  const { mutateAsync: createRole, isPending: creating } = useCreateRole()
+  const { mutateAsync: deleteRole } = useDeleteRole()
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [newRoleName, setNewRoleName] = useState('')
+  const [newRoleDesc, setNewRoleDesc] = useState('')
+
+  const selectedRole = roles?.find(r => r.id === selectedId) ?? roles?.[0] ?? null
+  const { data: rolePerms } = useRolePermissions(selectedRole?.id)
+
+  useEffect(() => {
+    if (!selectedId && roles && roles.length > 0) setSelectedId(roles[0].id)
+  }, [roles, selectedId])
+
+  async function handleCreate() {
+    if (!newRoleName.trim()) return
+    const role = await createRole({ name: newRoleName.trim(), description: newRoleDesc.trim() || undefined })
+    toast.success('تم إنشاء الدور')
+    setSelectedId(role.id)
+    setShowCreate(false)
+    setNewRoleName('')
+    setNewRoleDesc('')
+  }
+
+  async function handleDelete(id: string) {
+    await deleteRole(id)
+    toast.success('تم حذف الدور')
+    setSelectedId(null)
+  }
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-4">جاري التحميل...</p>
+
+  return (
+    <div className="flex gap-4 h-full">
+      {/* قائمة الأدوار */}
+      <div className="w-44 shrink-0 space-y-1">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold text-muted-foreground">الأدوار</span>
+          {canEdit && (
+            <button onClick={() => setShowCreate(true)} className="text-primary hover:text-primary/80">
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {(roles ?? []).map(role => (
+          <div
+            key={role.id}
+            className={cn(
+              'flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors',
+              selectedId === role.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+            )}
+            onClick={() => setSelectedId(role.id)}
+          >
+            <span className="truncate">{role.name}</span>
+            {!role.is_system && canEdit && (
+              <button
+                onClick={e => { e.stopPropagation(); handleDelete(role.id) }}
+                className={cn('shrink-0', selectedId === role.id ? 'text-primary-foreground/70 hover:text-primary-foreground' : 'text-muted-foreground hover:text-destructive')}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        ))}
+
+        {/* Create Dialog */}
+        <Dialog open={showCreate} onOpenChange={setShowCreate}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>إنشاء دور جديد</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs">اسم الدور</Label>
+                <Input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="مثال: مدير مبيعات" className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">الوصف (اختياري)</Label>
+                <Input value={newRoleDesc} onChange={e => setNewRoleDesc(e.target.value)} placeholder="وصف مختصر..." className="h-9" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCreate(false)}>إلغاء</Button>
+              <Button onClick={handleCreate} disabled={creating || !newRoleName.trim()}>
+                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'إنشاء'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* محرر الصلاحيات */}
+      <div className="flex-1 min-w-0">
+        {selectedRole && rolePerms ? (
+          <RoleEditor role={selectedRole} permissions={rolePerms} />
+        ) : (
+          <p className="text-sm text-muted-foreground">اختر دوراً من القائمة</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -296,6 +499,7 @@ ON CONFLICT DO NOTHING;`}
 }
 
 // ── Main Settings ──────────────────────────────────────────────────────────────
+type Section = 'company' | 'users' | 'roles' | 'system' | 'backup'
 interface SidebarSection { id: Section; label: string; icon: React.ElementType; group?: string }
 
 const SECTIONS: SidebarSection[] = [
@@ -303,6 +507,7 @@ const SECTIONS: SidebarSection[] = [
   { id: 'system', label: 'إعدادات النظام', icon: SettingsIcon, group: 'الإعدادات العامة' },
   { id: 'backup', label: 'النسخ الاحتياطي والـ SQL', icon: Archive, group: 'الإعدادات العامة' },
   { id: 'users', label: 'إدارة المستخدمين', icon: UserCog, group: 'الصلاحيات' },
+  { id: 'roles', label: 'إدارة الأدوار', icon: Shield, group: 'الصلاحيات' },
 ]
 
 const CONTENT: Record<Section, ReactNode> = {
@@ -310,6 +515,7 @@ const CONTENT: Record<Section, ReactNode> = {
   system: <SystemTab />,
   backup: <BackupTab />,
   users: <UsersTab />,
+  roles: <RolesTab />,
 }
 
 export default function Settings() {

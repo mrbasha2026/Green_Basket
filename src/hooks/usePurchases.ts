@@ -6,19 +6,35 @@ import { calcCostPerKg } from '@/lib/calculations'
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
 
+async function fetchAllPurchases(filters?: { date?: string; from?: string; to?: string }): Promise<Purchase[]> {
+  const PAGE = 1000
+  let all: Purchase[] = []
+  let start = 0
+  while (true) {
+    const q = supabase
+      .from('purchases')
+      .select('*, product:products(*), supplier:suppliers(*)')
+      .order('date', { ascending: false })
+      .range(start, start + PAGE - 1)
+    if (filters?.date) q.eq('date', filters.date)
+    if (filters?.from) q.gte('date', filters.from)
+    if (filters?.to) q.lte('date', filters.to)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all = [...all, ...(data as Purchase[])]
+    if (data.length < PAGE) break
+    start += PAGE
+  }
+  return all
+}
+
 export function usePurchases(date?: string) {
   return useQuery<Purchase[]>({
     queryKey: ['purchases', date],
     queryFn: async () => {
       if (USE_MOCK) return date ? mockPurchases.filter(p => p.date === date) : mockPurchases
-      const q = supabase
-        .from('purchases')
-        .select('*, product:products(*), supplier:suppliers(*)')
-        .order('date', { ascending: false }).limit(50000)
-      if (date) q.eq('date', date)
-      const { data, error } = await q
-      if (error) throw error
-      return data as Purchase[]
+      return fetchAllPurchases(date ? { date } : undefined)
     },
   })
 }
@@ -28,14 +44,7 @@ export function usePurchasesByRange(from: string, to: string) {
     queryKey: ['purchases', 'range', from, to],
     queryFn: async () => {
       if (USE_MOCK) return mockPurchases
-      const { data, error } = await supabase
-        .from('purchases')
-        .select('*, product:products(*), supplier:suppliers(*)')
-        .gte('date', from)
-        .lte('date', to)
-        .order('date', { ascending: false }).limit(50000)
-      if (error) throw error
-      return data as Purchase[]
+      return fetchAllPurchases({ from, to })
     },
   })
 }
@@ -49,13 +58,13 @@ export function useLatestPurchaseCosts(upToDate?: string) {
         mockPurchases.forEach(p => { if (!costs[p.product_id]) costs[p.product_id] = p.cost_per_kg })
         return costs
       }
-      const q = supabase.from('purchases').select('product_id, cost_per_kg, date').order('date', { ascending: false })
-      if (upToDate) q.lte('date', upToDate)
-      const { data, error } = await q
+      const { data, error } = await supabase.rpc('get_latest_purchase_costs',
+        upToDate ? { up_to_date: upToDate } : {}
+      )
       if (error) throw error
       const costs: Record<string, number> = {}
-      data?.forEach((p: { product_id: string; cost_per_kg: number }) => {
-        if (!costs[p.product_id]) costs[p.product_id] = p.cost_per_kg
+      data?.forEach((row: { product_id: string; cost_per_kg: number }) => {
+        costs[row.product_id] = row.cost_per_kg
       })
       return costs
     },

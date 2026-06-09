@@ -15,7 +15,7 @@ import { Combobox } from '@/components/ui/combobox'
 import { StocktakeSection } from '@/components/inventory/StocktakeSection'
 import { DailyStocktakeSection } from '@/components/inventory/DailyStocktake'
 import { useApprovedStocktakeItems } from '@/hooks/useStocktake'
-import { useEarliestInventory, useInventoryRange, useInventoryDaily, useUpsertInventory, useDeleteInventory } from '@/hooks/useInventory'
+import { useInventoryUpTo, useInventoryRange, useInventoryDaily, useUpsertInventory, useDeleteInventory, useRecalculateInventoryDaily } from '@/hooks/useInventory'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useSalesByRange } from '@/hooks/useSales'
 import { useWasteByRange } from '@/hooks/useWaste'
@@ -25,8 +25,9 @@ import { exportToExcel } from '@/lib/excel'
 import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 import type { Product } from '@/types'
 import { cn } from '@/lib/utils'
-import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList, Plus } from 'lucide-react'
+import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList, Plus, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { usePermission } from '@/hooks/usePermissions'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface InventoryBalance {
@@ -106,7 +107,7 @@ export default function Inventory() {
 
   // Overview query
   const ovDayBefore = prevDay(ovFrom)
-  const { data: ovEarliest } = useEarliestInventory()
+  const { data: ovLatestInv } = useInventoryUpTo(ovApplied ? ovDayBefore : DISABLED)
   const { data: ovPurchBefore } = usePurchasesByRange('2000-01-01', ovApplied ? ovDayBefore : DISABLED)
   const { data: ovSalesBefore } = useSalesByRange('2000-01-01', ovApplied ? ovDayBefore : DISABLED)
   const { data: ovWasteBefore } = useWasteByRange('2000-01-01', ovApplied ? ovDayBefore : DISABLED)
@@ -115,7 +116,7 @@ export default function Inventory() {
   const { data: ovWaste } = useWasteByRange(ovApplied ? ovFrom : DISABLED, ovApplied ? ovTo : DISABLED)
 
   // Balance queries
-  const { data: earliest, isLoading: eL } = useEarliestInventory()
+  const { data: latestInv, isLoading: eL } = useInventoryUpTo(dayBefore)
   const { data: products } = useProducts()
   const { data: purchasesBefore, isLoading: pbL } = usePurchasesByRange('2000-01-01', dayBefore)
   const { data: salesBefore, isLoading: sbL } = useSalesByRange('2000-01-01', dayBefore)
@@ -135,25 +136,27 @@ export default function Inventory() {
 
   // ── Opening map builder ──────────────────────────────────────────────────────
   function buildOpeningMap(
-    earliestData: typeof earliest,
+    latestInvData: typeof latestInv,
     purchBefore: typeof purchasesBefore,
     salBefore: typeof salesBefore,
     wstBefore: typeof wasteBefore
   ) {
     const result: Record<string, { stock: number; wac: number }> = {}
-    earliestData?.forEach(inv => { result[inv.product_id] = { stock: inv.opening_stock_kg, wac: inv.weighted_avg_cost } })
+    // نبدأ من آخر سجل inventory_daily (closing stock + WAC المحسوب)
+    latestInvData?.forEach(inv => { result[inv.product_id] = { stock: inv.closing_stock_kg, wac: inv.weighted_avg_cost } })
     const allIds = new Set([
-      ...(earliestData?.map(i => i.product_id) ?? []),
+      ...(latestInvData?.map(i => i.product_id) ?? []),
       ...(purchBefore?.map(p => p.product_id) ?? []),
       ...(salBefore?.map(s => s.product_id) ?? []),
       ...(wstBefore?.map(w => w.product_id) ?? []),
     ])
     allIds.forEach(pid => {
       const base = result[pid] ?? { stock: 0, wac: 0 }
-      const baseDate = earliestData?.find(i => i.product_id === pid)?.date ?? '2000-01-01'
-      const purch = (purchBefore ?? []).filter(p => p.product_id === pid && p.date >= baseDate)
-      const sale = (salBefore ?? []).filter(s => s.product_id === pid && s.date >= baseDate)
-      const wst = (wstBefore ?? []).filter(w => w.product_id === pid && w.date >= baseDate)
+      const baseDate = latestInvData?.find(i => i.product_id === pid)?.date ?? '2000-01-01'
+      // فقط النشاط بعد آخر سجل (السجل نفسه يغطي يومه)
+      const purch = (purchBefore ?? []).filter(p => p.product_id === pid && p.date > baseDate)
+      const sale = (salBefore ?? []).filter(s => s.product_id === pid && s.date > baseDate)
+      const wst = (wstBefore ?? []).filter(w => w.product_id === pid && w.date > baseDate)
       const pw = purch.reduce((s, p) => s + (p.total_weight ?? p.cartons_qty * p.weight_per_carton), 0)
       const pc = purch.reduce((s, p) => s + (p.total_cost ?? p.cartons_qty * p.price_per_carton), 0)
       const sk = sale.reduce((s, s2) => s + s2.qty_kg, 0)
@@ -167,13 +170,13 @@ export default function Inventory() {
 
   const openingMap = useMemo(() => {
     if (!appliedFrom) return {}
-    return buildOpeningMap(earliest, purchasesBefore, salesBefore, wasteBefore)
-  }, [appliedFrom, earliest, purchasesBefore, salesBefore, wasteBefore])
+    return buildOpeningMap(latestInv, purchasesBefore, salesBefore, wasteBefore)
+  }, [appliedFrom, latestInv, purchasesBefore, salesBefore, wasteBefore])
 
   // Overview opening map
   const ovOpeningMap = useMemo(() =>
-    buildOpeningMap(ovEarliest, ovPurchBefore, ovSalesBefore, ovWasteBefore),
-    [ovEarliest, ovPurchBefore, ovSalesBefore, ovWasteBefore]
+    buildOpeningMap(ovLatestInv, ovPurchBefore, ovSalesBefore, ovWasteBefore),
+    [ovLatestInv, ovPurchBefore, ovSalesBefore, ovWasteBefore]
   )
 
   // ── Balance builder ──────────────────────────────────────────────────────────
@@ -335,6 +338,8 @@ export default function Inventory() {
   ]
   const sectionGroups = ['التقارير', 'العمليات'] as const
 
+  const { mutateAsync: recalculate, isPending: isRecalculating } = useRecalculateInventoryDaily()
+
   const productOptions = (products ?? []).map(p => ({ value: p.id, label: p.name_ar }))
 
   return (
@@ -373,6 +378,24 @@ export default function Inventory() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Recalculate button */}
+          <div className="p-3 border-t border-border">
+            <button
+              disabled={isRecalculating}
+              onClick={async () => {
+                try {
+                  const count = await recalculate()
+                  toast.success(`تم إعادة حساب المتوسط المرجح — ${count} سجل`)
+                } catch {
+                  toast.error('حدث خطأ أثناء إعادة الحساب')
+                }
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 transition-colors disabled:opacity-50">
+              <RefreshCw className={cn('w-3.5 h-3.5 shrink-0', isRecalculating && 'animate-spin')} />
+              {isRecalculating ? 'جاري الحساب...' : 'إعادة حساب المتوسط المرجح'}
+            </button>
           </div>
 
           {/* Low stock alert */}
@@ -649,6 +672,10 @@ export default function Inventory() {
 
 // ── Products Section ───────────────────────────────────────────────────────────
 function ProductsSection() {
+  const canAdd = usePermission('inventory', 'add')
+  const canEdit = usePermission('inventory', 'edit')
+  const canDelete = usePermission('inventory', 'delete')
+
   const { data: products } = useAllProducts()
   const { mutateAsync: upsert, isPending } = useUpsertProduct()
   const { mutateAsync: toggleActive } = useToggleProductActive()
@@ -680,9 +707,11 @@ function ProductsSection() {
           </button>
           <span className="text-xs text-muted-foreground">{filtered.length} صنف</span>
         </div>
-        <Button size="sm" className="gap-1.5" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار', is_active: true }); setOpen(true) }}>
-          <Plus className="w-3.5 h-3.5" />إضافة صنف
-        </Button>
+        {canAdd && (
+          <Button size="sm" className="gap-1.5" onClick={() => { setEditProduct({ name_ar: '', name_en: '', category: 'خضار', is_active: true }); setOpen(true) }}>
+            <Plus className="w-3.5 h-3.5" />إضافة صنف
+          </Button>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) setEditProduct(null) }}>
@@ -737,8 +766,8 @@ function ProductsSection() {
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button>
-                    {p.is_active && <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3 h-3" /></Button>}
+                    {canEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button>}
+                    {canDelete && p.is_active && <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3 h-3" /></Button>}
                   </div>
                 </td>
               </tr>

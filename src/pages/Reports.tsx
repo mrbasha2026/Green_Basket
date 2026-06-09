@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { FileDown, Search, Target, Users, Package, TrendingUp } from 'lucide-react'
+import { usePermission } from '@/hooks/usePermissions'
 import { useCostAllocation } from '@/hooks/useCostAllocation'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
@@ -55,6 +56,8 @@ interface AppliedFilter {
 type ReportSection = 'products' | 'customers' | 'breakeven' | 'cm'
 
 export default function Reports() {
+  const canExport = usePermission('reports', 'export')
+
   // ── Filter inputs ──────────────────────────────────────────────────────────
   const [mode, setMode] = useState<'month' | 'range'>('month')
   const [year, setYear] = useState(currentYear())
@@ -293,7 +296,7 @@ export default function Reports() {
           <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '480px' }}>
             <nav className="w-52 shrink-0 border-l border-border bg-muted/30 flex flex-col">
               {/* Quick actions */}
-              {applied && (
+              {applied && canExport && (
                 <div className="p-2 border-b border-border space-y-1">
                   <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs"
                     onClick={() => exportToExcel(`تقرير-${periodTag}.xlsx`, ['الصنف','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'], productRows.map(r=>[r.name,r.qtyKg,r.revenue,r.cost,r.profit,r.marginPct.toFixed(1)+'%']))}>
@@ -323,13 +326,13 @@ export default function Reports() {
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
                     <span>ربحية الأصناف — {applied.label}</span>
-                    <Button variant="outline" size="sm" className="gap-2"
+                    {canExport && <Button variant="outline" size="sm" className="gap-2"
                       onClick={() => exportToExcel(`products-${periodTag}.xlsx`,
                         ['الصنف','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','سعر البيع/كج','التكلفة/كج'],
                         productRows.map(r => [r.name, r.qtyKg, r.revenue, r.cost, r.profit, r.marginPct.toFixed(1)+'%', r.avgSell, r.avgCost])
                       )}>
                       <FileDown className="w-4 h-4" /> Excel
-                    </Button>
+                    </Button>}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -379,13 +382,13 @@ export default function Reports() {
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
                     <span>ربحية العملاء — {applied.label}</span>
-                    <Button variant="outline" size="sm" className="gap-2"
+                    {canExport && <Button variant="outline" size="sm" className="gap-2"
                       onClick={() => exportToExcel(`customers-${periodTag}.xlsx`,
                         ['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','م.سعر البيع/كج','م.التكلفة/كج'],
                         customerRows.map(r => [r.name, r.type, r.qty, r.revenue, r.cost, r.profit, r.marginPct.toFixed(1)+'%', r.avgSellPerKg.toFixed(2), r.avgCostPerKg.toFixed(2)])
                       )}>
                       <FileDown className="w-4 h-4" /> Excel
-                    </Button>
+                    </Button>}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -427,7 +430,7 @@ export default function Reports() {
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
                     <span>نقطة التعادل — السعر الأدنى للبيع بلا خسارة</span>
-                    {breakevenRows.length > 0 && (
+                    {canExport && breakevenRows.length > 0 && (
                       <Button variant="outline" size="sm" className="gap-2"
                         onClick={() => exportToExcel(`breakeven-${periodTag}.xlsx`,
                           ['الصنف','التكلفة الكاملة/كج','متوسط سعر البيع','الفرق','الحالة'],
@@ -484,7 +487,7 @@ export default function Reports() {
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
                     <span>هامش المساهمة — مساهمة الصنف في تغطية التكاليف الثابتة</span>
-                    {cmRows.length > 0 && (
+                    {canExport && cmRows.length > 0 && (
                       <Button variant="outline" size="sm" className="gap-2"
                         onClick={() => exportToExcel(`cm-${periodTag}.xlsx`,
                           ['الصنف','هامش المساهمة(ر.س)','هامش%','الإيراد','تكلفة البضاعة'],

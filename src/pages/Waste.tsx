@@ -20,8 +20,11 @@ import { exportToExcel } from '@/lib/excel'
 import { Combobox } from '@/components/ui/combobox'
 import { BarChart2, List, PieChart as PieChartIcon, Plus, ShoppingCart, TrendingUp, Package } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { usePermission } from '@/hooks/usePermissions'
 
 export default function Waste() {
+  const canAdd = usePermission('waste', 'add')
+  const canExport = usePermission('waste', 'export')
   const { selectedMonth, selectedYear } = useAppStore()
   const [date, setDate] = useState(todayISO())
   const [productId, setProductId] = useState('')
@@ -139,7 +142,7 @@ export default function Waste() {
           ))}
         </div>
         {/* Form */}
-        <div className="p-3 border-b border-border">
+        {canAdd && <div className="p-3 border-b border-border">
           <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide flex items-center gap-1.5"><Plus className="w-3 h-3"/>تسجيل هدر جديد</p>
           <form onSubmit={handleSubmit} className="space-y-2.5 mt-2">
             <div className="space-y-1"><Label className="text-xs">التاريخ</Label>
@@ -159,7 +162,7 @@ export default function Waste() {
               <Plus className="w-3.5 h-3.5"/>{isPending ? 'جاري الحفظ...' : 'حفظ'}
             </Button>
           </form>
-        </div>
+        </div>}
 
         {/* Month selector */}
         <div className="p-3 border-b border-border space-y-2">
@@ -260,7 +263,7 @@ export default function Waste() {
                 {(filterProduct||filterSource)&&<Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={()=>{setFilterProduct('');setFilterSource('')}}>مسح</Button>}
               </div>
               {isLoading ? <div className="space-y-2">{[...Array(3)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div> : (
-                <DataTable data={filteredWaste} columns={columns} searchPlaceholder="بحث..." onExportExcel={async()=>{await exportToExcel('waste.xlsx',['التاريخ','الصنف','الكمية(كج)','التكلفة(ر.س)','السبب','المصدر'],filteredWaste.map(w=>[w.date,w.product?.name_ar??'',w.waste_kg,parseFloat((w.waste_kg*getWAC(w.product_id)).toFixed(2)),w.reason??'',w.source==='web'?'يدوي':'Sheets']))}} />
+                <DataTable data={filteredWaste} columns={columns} searchPlaceholder="بحث..." onExportExcel={canExport?async()=>{await exportToExcel('waste.xlsx',['التاريخ','الصنف','الكمية(كج)','التكلفة(ر.س)','السبب','المصدر'],filteredWaste.map(w=>[w.date,w.product?.name_ar??'',w.waste_kg,parseFloat((w.waste_kg*getWAC(w.product_id)).toFixed(2)),w.reason??'',w.source==='web'?'يدوي':'Sheets']))}:undefined} />
               )}
             </CardContent>
           </Card>

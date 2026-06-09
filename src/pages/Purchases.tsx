@@ -23,6 +23,7 @@ import { Plus, Trash2, Printer, Upload, FileDown, RotateCcw, FileText, Eye, Penc
 import { DataTable } from '@/components/tables/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { supabase } from '@/lib/supabase'
+import { usePermission } from '@/hooks/usePermissions'
 
 // ── Invoice group type ────────────────────────────────────────────────────────
 interface InvoiceGroup {
@@ -320,6 +321,8 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
   const [filterType, setFilterType] = useState<'all'|'purchase'|'return'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const { mutateAsync: deletePurchase } = useDeletePurchase()
+  const canDelete = usePermission('purchases', 'delete')
+  const canExport = usePermission('purchases', 'export')
 
   const filtered = useMemo(() => {
     let data = purchases
@@ -363,7 +366,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
           {(filterDateFrom||filterDateTo||filterProduct||filterType!=='all')&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterProduct('');setFilterType('all')}}>مسح</Button>}
         </div>
         <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && (
+          {canDelete && selectedIds.size > 0 && (
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
               <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
@@ -374,7 +377,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
             </div>
           )}
           <span className="text-xs text-muted-foreground">{filtered.length} سجل</span>
-          <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleExport}><FileDown className="w-3 h-3"/>تصدير Excel</Button>
+          {canExport && <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleExport}><FileDown className="w-3 h-3"/>تصدير Excel</Button>}
         </div>
       </div>
 
@@ -410,12 +413,12 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
           { accessorKey: 'cartons_qty', header: 'كراتين', cell: ({ getValue }) => <span className="text-xs">{formatNumber(getValue() as number)}</span> },
           { accessorKey: 'cost_per_kg', header: 'التكلفة/كج', cell: ({ getValue }) => <span className="text-xs text-primary">{formatNumber(getValue() as number)}</span> },
           { accessorKey: 'total_cost', header: 'الإجمالي', cell: ({ getValue }) => <span className="font-semibold text-xs">{formatNumber(getValue() as number)}</span> },
-          { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => (
+          ...(canDelete ? [{ id: 'actions', header: '', enableSorting: false, cell: ({ row }: { row: { original: Purchase } }) => (
             <Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10"
               onClick={async () => { await deletePurchase(row.original.id); toast.success('تم الحذف') }}>
               <Trash2 className="w-3 h-3"/>
             </Button>
-          )},
+          )} as ColumnDef<Purchase>] : []),
         ]
 
         return isLoading ? (
@@ -424,7 +427,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
           <DataTable
             data={filtered}
             columns={columns}
-            showSearch={false}
+            searchPlaceholder="بحث برقم الفاتورة أو الصنف أو المورد..."
             defaultPageSize={50}
             onExportExcel={handleExport}
           />
@@ -438,6 +441,10 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
 type Section = 'invoices' | 'records' | 'returns' | 'suppliers'
 
 export default function Purchases() {
+  const canAdd = usePermission('purchases', 'add')
+  const canEdit = usePermission('purchases', 'edit')
+  const canDelete = usePermission('purchases', 'delete')
+
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editGroup, setEditGroup] = useState<InvoiceGroup|null>(null)
   const [detailGroup, setDetailGroup] = useState<InvoiceGroup|null>(null)
@@ -448,6 +455,7 @@ export default function Purchases() {
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
+  const [filterInvoice, setFilterInvoice] = useState('')
 
   const today = todayISO()
   const {data:purchases,isLoading}=usePurchases()
@@ -463,8 +471,16 @@ export default function Purchases() {
   const monthPurchReturns=useMemo(()=>(purchases??[]).filter(p=>p.date.startsWith(cmpP)&&p.transaction_type==='مرتجع_مشتريات').reduce((s,p)=>s+p.total_cost,0),[purchases,cmpP])
 
   const filteredPurchases=useMemo(()=>{let data=purchases??[];if(filterSupplier)data=data.filter(p=>p.supplier_id===filterSupplier);if(filterDateFrom)data=data.filter(p=>p.date>=filterDateFrom);if(filterDateTo)data=data.filter(p=>p.date<=filterDateTo);return data},[purchases,filterSupplier,filterDateFrom,filterDateTo])
-  const invoiceGroups=useMemo(()=>groupPurchases(filteredPurchases.filter(p=>p.transaction_type!=='مرتجع_مشتريات')),[filteredPurchases])
-  const returnGroups=useMemo(()=>groupPurchases(filteredPurchases.filter(p=>p.transaction_type==='مرتجع_مشتريات')),[filteredPurchases])
+  const invoiceGroups=useMemo(()=>{
+    let groups=groupPurchases(filteredPurchases.filter(p=>p.transaction_type!=='مرتجع_مشتريات'))
+    if(filterInvoice) groups=groups.filter(g=>g.invoice_number?.toLowerCase().includes(filterInvoice.toLowerCase()))
+    return groups
+  },[filteredPurchases,filterInvoice])
+  const returnGroups=useMemo(()=>{
+    let groups=groupPurchases(filteredPurchases.filter(p=>p.transaction_type==='مرتجع_مشتريات'))
+    if(filterInvoice) groups=groups.filter(g=>g.invoice_number?.toLowerCase().includes(filterInvoice.toLowerCase()))
+    return groups
+  },[filteredPurchases,filterInvoice])
   const allRecords=useMemo(()=>purchases??[],[purchases])
 
   const supplierOptions=(suppliers??[]).map(s=>({value:s.id,label:s.name_ar}))
@@ -481,35 +497,19 @@ export default function Purchases() {
     if (isLoading) return <div className="space-y-2 p-5">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-10"/>)}</div>
     if (groups.length===0) return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground py-16">
-        <div className="text-center"><FileText className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد فواتير</p><Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}><Plus className="w-3.5 h-3.5"/>إضافة فاتورة</Button></div>
+        <div className="text-center"><FileText className="w-10 h-10 mx-auto mb-3 opacity-30"/><p className="text-sm">لا توجد فواتير</p>{canAdd&&<Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}><Plus className="w-3.5 h-3.5"/>إضافة فاتورة</Button>}</div>
       </div>
     )
-    return (
-      <div className="overflow-auto max-h-[520px] flex-1">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10"><tr className="border-b border-border bg-muted/80">{['رقم الفاتورة','المورد','التاريخ','الأصناف','الإجمالي (ر.س)','النوع','الإجراءات'].map(h=><th key={h} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {groups.map(g=>(
-              <tr key={g.key} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-3">{g.invoice_number?<span className="font-mono text-xs bg-primary/10 text-primary px-2 py-0.5 rounded font-medium">{g.invoice_number}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
-                <td className="px-4 py-3 font-medium">{g.supplier_name}</td>
-                <td className="px-4 py-3 text-muted-foreground text-sm">{formatDate(g.date)}</td>
-                <td className="px-4 py-3"><button className="text-primary hover:underline text-xs font-medium" onClick={()=>{setDetailGroup(g);setDetailOpen(true)}}>{g.items.length} {g.items.length===1?'صنف':'أصناف'}</button></td>
-                <td className="px-4 py-3 font-semibold text-base">{formatNumber(g.total_cost)}</td>
-                <td className="px-4 py-3">{g.source==='google_sheet'?<Badge variant="secondary" className="text-xs">Sheets</Badge>:g.invoice_number?.startsWith('PIG')?<Badge variant="outline" className="text-xs">Excel</Badge>:g.invoice_number?<Badge className="text-xs bg-success/15 text-success border-success/20">يدوي</Badge>:<Badge variant="outline" className="text-xs">قديم</Badge>}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-0.5">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={()=>{setDetailGroup(g);setDetailOpen(true)}}><Eye className="w-3.5 h-3.5"/></Button>
-                    {g.source!=='google_sheet'&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={()=>{setEditGroup(g);setDrawerOpen(true)}}><Pencil className="w-3.5 h-3.5"/></Button>}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={()=>setDeleteInvoice(g)}><Trash2 className="w-3.5 h-3.5"/></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
+    const cols: ColumnDef<InvoiceGroup>[] = [
+      { accessorKey:'invoice_number', header:'رقم الفاتورة', cell:({getValue})=>{const v=getValue() as string|null;return v?<span className="font-mono text-xs bg-primary/10 text-primary px-2 py-0.5 rounded font-medium">{v}</span>:<span className="text-muted-foreground text-xs">—</span>} },
+      { accessorFn:r=>r.supplier_name, id:'supplier', header:'المورد', cell:({getValue})=><span className="font-medium text-sm">{getValue() as string}</span> },
+      { accessorKey:'date', header:'التاريخ', cell:({getValue})=><span className="text-muted-foreground text-sm whitespace-nowrap">{formatDate(getValue() as string)}</span> },
+      { id:'items', header:'الأصناف', enableSorting:false, cell:({row})=><button className="text-primary hover:underline text-xs font-medium" onClick={()=>{setDetailGroup(row.original);setDetailOpen(true)}}>{row.original.items.length} {row.original.items.length===1?'صنف':'أصناف'}</button> },
+      { accessorKey:'total_cost', header:'الإجمالي (ر.س)', cell:({getValue})=><span className="font-semibold">{formatNumber(getValue() as number)}</span> },
+      { id:'source', header:'النوع', enableSorting:false, cell:({row})=>{const g=row.original;return g.source==='google_sheet'?<Badge variant="secondary" className="text-xs">Sheets</Badge>:g.invoice_number?.startsWith('PIG')?<Badge variant="outline" className="text-xs">Excel</Badge>:g.invoice_number?<Badge className="text-xs bg-success/15 text-success border-success/20">يدوي</Badge>:<Badge variant="outline" className="text-xs">قديم</Badge>} },
+      { id:'actions', header:'', enableSorting:false, cell:({row})=>{const g=row.original;return <div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={()=>{setDetailGroup(g);setDetailOpen(true)}}><Eye className="w-3.5 h-3.5"/></Button>{canEdit&&g.source!=='google_sheet'&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={()=>{setEditGroup(g);setDrawerOpen(true)}}><Pencil className="w-3.5 h-3.5"/></Button>}{canDelete&&<Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={()=>setDeleteInvoice(g)}><Trash2 className="w-3.5 h-3.5"/></Button>}</div>} },
+    ]
+    return <div className="p-4 flex-1 overflow-auto"><DataTable data={groups} columns={cols} showSearch={false} defaultPageSize={20}/></div>
   }
 
   const monthAvgInvoice = monthPurchInvoices > 0 ? monthPurchTotal / monthPurchInvoices : 0
@@ -546,12 +546,14 @@ export default function Purchases() {
           </div>
 
           {/* Quick Actions */}
-          <div className="p-3 border-b border-border space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
-            <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}>
-              <Plus className="w-3.5 h-3.5"/>فاتورة مشتريات
-            </Button>
-          </div>
+          {canAdd && (
+            <div className="p-3 border-b border-border space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground px-1 py-1 uppercase tracking-wide">إجراءات سريعة</p>
+              <Button size="sm" className="w-full gap-2 justify-start h-8" onClick={()=>{setEditGroup(null);setDrawerOpen(true)}}>
+                <Plus className="w-3.5 h-3.5"/>فاتورة مشتريات
+              </Button>
+            </div>
+          )}
 
           {/* Sections */}
           <div className="flex-1 p-2 space-y-0.5">
@@ -575,8 +577,9 @@ export default function Purchases() {
             <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-border bg-background/50 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
                 <QuickDateFilter from={filterDateFrom} to={filterDateTo} onFromChange={setFilterDateFrom} onToChange={setFilterDateTo}/>
+                <Input placeholder="رقم الفاتورة..." value={filterInvoice} onChange={e=>setFilterInvoice(e.target.value)} className="h-8 text-sm w-36" dir="ltr"/>
                 <div className="w-44"><Combobox options={[{value:'',label:'كل الموردين'},...supplierOptions]} value={filterSupplier} onValueChange={setFilterSupplier} placeholder="كل الموردين"/></div>
-                {(filterDateFrom||filterDateTo||filterSupplier)&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterSupplier('')}}>مسح</Button>}
+                {(filterDateFrom||filterDateTo||filterSupplier||filterInvoice)&&<Button variant="ghost" size="sm" className="text-muted-foreground text-xs" onClick={()=>{setFilterDateFrom('');setFilterDateTo('');setFilterSupplier('');setFilterInvoice('')}}>مسح</Button>}
               </div>
               <span className="text-xs text-muted-foreground">{activeSection==='invoices'?invoiceGroups.length:returnGroups.length} فاتورة</span>
             </div>

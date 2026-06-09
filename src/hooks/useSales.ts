@@ -5,6 +5,31 @@ import type { Sale } from '@/types'
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
 
+async function fetchAllSales(filters?: { customerId?: string; date?: string; productId?: string; from?: string; to?: string }): Promise<Sale[]> {
+  const PAGE = 1000
+  let all: Sale[] = []
+  let start = 0
+  while (true) {
+    const q = supabase
+      .from('sales')
+      .select('*, product:products(*), customer:customers(*)')
+      .order('date', { ascending: false })
+      .range(start, start + PAGE - 1)
+    if (filters?.customerId) q.eq('customer_id', filters.customerId)
+    if (filters?.date) q.eq('date', filters.date)
+    if (filters?.productId) q.eq('product_id', filters.productId)
+    if (filters?.from) q.gte('date', filters.from)
+    if (filters?.to) q.lte('date', filters.to)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all = [...all, ...(data as Sale[])]
+    if (data.length < PAGE) break
+    start += PAGE
+  }
+  return all
+}
+
 export function useSales(filters?: { customerId?: string; date?: string; productId?: string }) {
   return useQuery<Sale[]>({
     queryKey: ['sales', filters],
@@ -16,13 +41,7 @@ export function useSales(filters?: { customerId?: string; date?: string; product
         if (filters?.productId) data = data.filter(s => s.product_id === filters.productId)
         return data
       }
-      const q = supabase.from('sales').select('*, product:products(*), customer:customers(*)').order('date', { ascending: false }).limit(50000)
-      if (filters?.customerId) q.eq('customer_id', filters.customerId)
-      if (filters?.date) q.eq('date', filters.date)
-      if (filters?.productId) q.eq('product_id', filters.productId)
-      const { data, error } = await q
-      if (error) throw error
-      return data as Sale[]
+      return fetchAllSales(filters)
     },
   })
 }
@@ -32,11 +51,7 @@ export function useSalesByRange(from: string, to: string) {
     queryKey: ['sales', 'range', from, to],
     queryFn: async () => {
       if (USE_MOCK) return mockSales
-      const { data, error } = await supabase
-        .from('sales').select('*, product:products(*), customer:customers(*)')
-        .gte('date', from).lte('date', to).order('date', { ascending: false }).limit(50000)
-      if (error) throw error
-      return data as Sale[]
+      return fetchAllSales({ from, to })
     },
   })
 }

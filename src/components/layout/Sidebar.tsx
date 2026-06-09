@@ -1,7 +1,8 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, TrendingUp, Package, BarChart3,
   Calculator, Trash2, RefreshCw, FileText, Settings, Leaf, LineChart, BookOpen,
+  CalendarClock, ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -26,17 +27,35 @@ const navItems = [
   { to: '/purchases', label: 'المشتريات', icon: ShoppingCart },
   { to: '/sales', label: 'المبيعات', icon: TrendingUp },
   { to: '/inventory', label: 'المخزون', icon: Package },
-  { to: '/profits', label: 'تحليل الأرباح', icon: BarChart3 },
-  { to: '/cost-accounting', label: 'محاسبة التكاليف', icon: Calculator },
+  { to: '/period-management', label: 'الفترات المحاسبية', icon: CalendarClock },
   { to: '/waste', label: 'الهدر', icon: Trash2 },
   { to: '/sync', label: 'المزامنة', icon: RefreshCw },
-  { to: '/reports', label: 'التقارير', icon: FileText },
   { to: '/account-statement', label: 'كشف الحساب', icon: BookOpen },
   { to: '/settings', label: 'الإعدادات', icon: Settings },
 ]
 
+const reportsGroup = {
+  label: 'التقارير والتحليلات',
+  icon: BarChart3,
+  items: [
+    { to: '/profits',         label: 'تحليل الأرباح',    icon: BarChart3 },
+    { to: '/cost-accounting', label: 'محاسبة التكاليف',  icon: Calculator },
+    { to: '/reports',         label: 'التقارير',          icon: FileText },
+  ],
+}
+
 export function Sidebar() {
   const site = useSiteSettings()
+  const { pathname } = useLocation()
+
+  const groupActive = reportsGroup.items.some(i => pathname.startsWith(i.to))
+  const [groupOpen, setGroupOpen] = useState(groupActive)
+
+  // افتح المجموعة تلقائياً إذا كان المسار الحالي فيها
+  useEffect(() => {
+    if (groupActive) setGroupOpen(true)
+  }, [groupActive])
+
   return (
     <aside className="w-64 min-h-screen bg-card border-l border-border flex flex-col">
       {/* Logo */}
@@ -71,6 +90,43 @@ export function Sidebar() {
             <span>{label}</span>
           </NavLink>
         ))}
+
+        {/* مجموعة التقارير والتحليلات */}
+        <div>
+          <button
+            onClick={() => setGroupOpen(v => !v)}
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+              groupActive
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            )}
+          >
+            <reportsGroup.icon className="w-4 h-4 shrink-0" />
+            <span className="flex-1 text-right">{reportsGroup.label}</span>
+            <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', groupOpen && 'rotate-180')} />
+          </button>
+
+          {groupOpen && (
+            <div className="mt-0.5 mr-3 border-r border-border pr-2 space-y-0.5">
+              {reportsGroup.items.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => cn(
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          )}
+        </div>
       </nav>
 
       {/* Bottom */}

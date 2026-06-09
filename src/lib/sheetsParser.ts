@@ -36,7 +36,10 @@ function parseNum(val: unknown): number {
 function parseDateStr(val: unknown): Date | null {
   if (val === null || val === undefined || val === '') return null
   if (val instanceof Date) {
-    return new Date(Date.UTC(val.getFullYear(), val.getMonth(), val.getDate()))
+    // Excel يخزن التواريخ أحياناً بـ serial يقع قبل منتصف الليل بساعات (ناتج تحويل timezone أو floating-point)
+    // نُضيف 12 ساعة كـ buffer ثم نأخذ تاريخ UTC، مما يضمن قراءة اليوم الصحيح دائماً
+    const nudged = new Date(val.getTime() + 43200000) // +12h
+    return new Date(Date.UTC(nudged.getUTCFullYear(), nudged.getUTCMonth(), nudged.getUTCDate()))
   }
   // رقم serial من Excel (عدد الأيام منذ 1899-12-30)
   if (typeof val === 'number' && val > 0) {
@@ -148,19 +151,29 @@ export function parsePurchasesSheet(rows: unknown[][]): PurchaseRecord[] {
   const { headerRow, dates } = detectDateRow(rows, DATE_START_COL)
   if (dates.length === 0) return records
 
+  // الـ fallback step لآخر تاريخ — نستخدم 7 (البنية القياسية) بدل اشتقاقه
+  // من المسافة بين آخر تاريخين، لأن تلك المسافة قد تعكس عمود زائد في الفترة قبل الأخيرة
+  const fallbackStep = 7
+
   // البيانات تبدأ من الصف الذي يلي صف التواريخ
   for (let row = headerRow + 1; row < rows.length; row++) {
     if (!rows[row]) continue
     const productName = String(rows[row][0] ?? '').trim()
     if (isSkippableRow(productName)) continue
 
-    for (const { col, date } of dates) {
+    for (let di = 0; di < dates.length; di++) {
+      const { col, date } = dates[di]
+      // نحسب الـ step لكل تاريخ على حدا من المسافة للتاريخ التالي
+      // هذا يعالج الشيتات التي تغير عدد أعمدتها في منتصفها
+      const step        = di + 1 < dates.length ? dates[di + 1].col - col : fallbackStep
+      const wasteOffset = step - 1
+
       const cartons = parseNum(rows[row][col])
       const price   = parseNum(rows[row][col + 1])
       // col+2 = اجمالي السعر (مُهمَل)
-      const weight  = parseNum(rows[row][col + 3])  // الوزن
-      // col+4 = اجمالي الأوزان، col+5 = تكلفة الكيلو (مُهمَلان)
-      const waste   = parseNum(rows[row][col + 6])  // وزن التالف
+      const weight  = parseNum(rows[row][col + 3])
+      // col+(step-2) = تكلفة الكيلو (مُهمَل)، col+(step-1) = وزن التالف
+      const waste   = parseNum(rows[row][col + wasteOffset])
 
       if (cartons > 0 || waste > 0) {
         records.push({ date, productName, cartons, price, weight, waste })

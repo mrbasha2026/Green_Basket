@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { google } from 'googleapis'
 import * as XLSX from 'xlsx'
 import { parseCustomerSheet, parsePurchasesSheet, SYSTEM_SHEETS } from '../src/lib/sheetsParser'
+import { calcCostPerKg } from '../src/lib/calculations'
 import type { SaleRecord, PurchaseRecord } from '../src/types'
 
 const supabaseAdmin = createClient(
@@ -122,22 +123,21 @@ function findCustomerId(sheetName: string, sheetMap: Map<string, string>): strin
 // ─── Cache: تحميل كل البيانات مرة واحدة ──────────────────────────────────────
 
 interface SyncCache {
-  // alias (uppercase) → product_id
   aliasMap: Map<string, string>
-  // sheet_name → customer_id
   sheetMap: Map<string, string>
+  // مجموعة الفترات المغلقة بصيغة "YYYY-MM" — لا يتم تحديث بياناتها أثناء المزامنة
+  closedPeriods: Set<string>
 }
 
 async function buildCache(): Promise<SyncCache> {
-  // حد صريح عالٍ لتجاوز حد Supabase الافتراضي (1000 صف) الذي يفقد ربوط المنتجات
-  const [aliasRes, productRes, sheetRes] = await Promise.all([
+  const [aliasRes, productRes, sheetRes, periodsRes] = await Promise.all([
     supabaseAdmin.from('product_aliases').select('alias, product_id').limit(100000),
     supabaseAdmin.from('products').select('id, name_en, name_ar').limit(100000),
     supabaseAdmin.from('customer_sheet_mapping').select('sheet_name, customer_id').limit(100000),
+    supabaseAdmin.from('accounting_periods').select('period_year, period_month').eq('status', 'closed').limit(1000),
   ])
 
   const aliasMap = new Map<string, string>()
-
   for (const row of aliasRes.data ?? []) {
     aliasMap.set(row.alias.toUpperCase().trim(), row.product_id)
   }
@@ -151,7 +151,16 @@ async function buildCache(): Promise<SyncCache> {
     sheetMap.set(row.sheet_name, row.customer_id)
   }
 
-  return { aliasMap, sheetMap }
+  const closedPeriods = new Set<string>()
+  for (const p of periodsRes.data ?? []) {
+    closedPeriods.add(`${p.period_year}-${String(p.period_month).padStart(2, '0')}`)
+  }
+
+  return { aliasMap, sheetMap, closedPeriods }
+}
+
+function inClosedPeriod(date: string, closedPeriods: Set<string>): boolean {
+  return closedPeriods.has(date.substring(0, 7))
 }
 
 // ─── Import ───────────────────────────────────────────────────────────────────
@@ -176,6 +185,7 @@ async function importSales(
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
     if (!productId) { unmatched.add(r.productName.trim()); continue }
     const date = r.date.toISOString().split('T')[0]
+    if (inClosedPeriod(date, cache.closedPeriods)) continue
     const key = `${productId}__${date}`
     const a = merged.get(key) ?? { product_id: productId, date, qty: 0, buyWeighted: 0, sellWeighted: 0 }
     a.qty += r.qty
@@ -194,12 +204,44 @@ async function importSales(
     source: 'google_sheet',
   }))
 
-  if (rows.length > 0) {
-    const { error } = await supabaseAdmin
-      .from('sales')
-      .upsert(rows, { onConflict: 'product_id,customer_id,date,source' })
+  // احذف السجلات القديمة لهذا العميل في نطاق التواريخ المُعالج ثم أعد الإدراج
+  // هذا يضمن إزالة أي بيانات خاطئة استوردتها مزامنة سابقة
+  const openDatesArr = records
+    .map(r => r.date.toISOString().split('T')[0])
+    .filter(d => !inClosedPeriod(d, cache.closedPeriods))
+
+  if (openDatesArr.length > 0) {
+    const minDate = openDatesArr.reduce((a, b) => a < b ? a : b)
+    const maxDate = openDatesArr.reduce((a, b) => a > b ? a : b)
+
+    // احفظ الصفوف الحالية قبل الحذف لاستعادتها عند الفشل
+    const { data: backup } = await supabaseAdmin.from('sales')
+      .select('*')
+      .eq('source', 'google_sheet')
+      .eq('customer_id', customerId)
+      .gte('date', minDate)
+      .lte('date', maxDate)
+
+    await supabaseAdmin.from('sales')
+      .delete()
+      .eq('source', 'google_sheet')
+      .eq('customer_id', customerId)
+      .gte('date', minDate)
+      .lte('date', maxDate)
+
+    if (rows.length > 0) {
+      const { error } = await supabaseAdmin.from('sales').insert(rows)
+      if (error) {
+        // استرجاع البيانات المحذوفة عند الفشل
+        if (backup?.length) await supabaseAdmin.from('sales').insert(backup)
+        throw new Error(`فشل إدراج المبيعات: ${error.message}`)
+      }
+    }
+  } else if (rows.length > 0) {
+    const { error } = await supabaseAdmin.from('sales').insert(rows)
     if (error) throw new Error(`فشل إدراج المبيعات: ${error.message}`)
   }
+
   return rows.length
 }
 
@@ -220,10 +262,11 @@ async function importPurchases(
   }
   const merged = new Map<string, Agg>()
   for (const r of records) {
-    if (r.cartons <= 0) continue  // المشتريات فقط
+    if (r.cartons <= 0) continue
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
     if (!productId) { unmatched.add(r.productName.trim()); continue }
     const date = r.date.toISOString().split('T')[0]
+    if (inClosedPeriod(date, cache.closedPeriods)) continue
     const key = `${productId}__${date}`
     const a = merged.get(key) ?? { product_id: productId, date, cartons: 0, waste: 0, priceWeighted: 0, weightWeighted: 0 }
     a.cartons += r.cartons
@@ -243,17 +286,49 @@ async function importPurchases(
       price_per_carton: pricePerCarton,
       weight_per_carton: weightPerCarton,
       waste_kg: a.waste,
-      cost_per_kg: weightPerCarton > 0 ? pricePerCarton / weightPerCarton : 0,
+      cost_per_kg: calcCostPerKg(a.priceWeighted, a.weightWeighted, a.waste),
       source: 'google_sheet',
     }
   })
 
-  if (rows.length > 0) {
-    const { error } = await supabaseAdmin
-      .from('purchases')
-      .upsert(rows, { onConflict: 'product_id,date' })
+  // احذف المشتريات القديمة في نطاق التواريخ المُعالج ثم أعد الإدراج
+  // نُقيّد الحذف بـ product_id لتجنب مسح بيانات منتجات غير موجودة في الدفعة الحالية
+  const productIds = [...new Set(rows.map(r => r.product_id))]
+  const openPurchaseDates = records
+    .filter(r => r.cartons > 0)
+    .map(r => r.date.toISOString().split('T')[0])
+    .filter(d => !inClosedPeriod(d, cache.closedPeriods))
+
+  if (openPurchaseDates.length > 0 && productIds.length > 0) {
+    const minDate = openPurchaseDates.reduce((a, b) => a < b ? a : b)
+    const maxDate = openPurchaseDates.reduce((a, b) => a > b ? a : b)
+
+    const { data: backup } = await supabaseAdmin.from('purchases')
+      .select('*')
+      .eq('source', 'google_sheet')
+      .in('product_id', productIds)
+      .gte('date', minDate)
+      .lte('date', maxDate)
+
+    await supabaseAdmin.from('purchases')
+      .delete()
+      .eq('source', 'google_sheet')
+      .in('product_id', productIds)
+      .gte('date', minDate)
+      .lte('date', maxDate)
+
+    if (rows.length > 0) {
+      const { error } = await supabaseAdmin.from('purchases').insert(rows)
+      if (error) {
+        if (backup?.length) await supabaseAdmin.from('purchases').insert(backup)
+        throw new Error(`فشل إدراج المشتريات: ${error.message}`)
+      }
+    }
+  } else if (rows.length > 0) {
+    const { error } = await supabaseAdmin.from('purchases').insert(rows)
     if (error) throw new Error(`فشل إدراج المشتريات: ${error.message}`)
   }
+
   return rows.length
 }
 
@@ -265,10 +340,11 @@ async function importWaste(
   // دمج الهدر المكرر (نفس product_id + date) في صف واحد
   const merged = new Map<string, { product_id: string; date: string; waste: number }>()
   for (const r of records) {
-    if (r.waste <= 0) continue  // الهدر فقط
+    if (r.waste <= 0) continue
     const productId = cache.aliasMap.get(r.productName.toUpperCase().trim())
     if (!productId) { unmatched.add(r.productName.trim()); continue }
     const date = r.date.toISOString().split('T')[0]
+    if (inClosedPeriod(date, cache.closedPeriods)) continue
     const key = `${productId}__${date}`
     const a = merged.get(key) ?? { product_id: productId, date, waste: 0 }
     a.waste += r.waste
@@ -284,16 +360,30 @@ async function importWaste(
   }))
 
   if (rows.length > 0) {
-    // waste_log لا يملك unique constraint — نحذف القديم ثم ندرج
     const productIds = [...new Set(rows.map(r => r.product_id))]
-    const dates = [...new Set(rows.map(r => r.date))]
+    const allDates = rows.map(r => r.date)
+    const minDate = allDates.reduce((a, b) => a < b ? a : b)
+    const maxDate = allDates.reduce((a, b) => a > b ? a : b)
+
+    const { data: backup } = await supabaseAdmin.from('waste_log')
+      .select('*')
+      .eq('source', 'google_sheet')
+      .in('product_id', productIds)
+      .gte('date', minDate)
+      .lte('date', maxDate)
+
     await supabaseAdmin.from('waste_log')
       .delete()
       .eq('source', 'google_sheet')
       .in('product_id', productIds)
-      .in('date', dates)
+      .gte('date', minDate)
+      .lte('date', maxDate)
+
     const { error } = await supabaseAdmin.from('waste_log').insert(rows)
-    if (error) throw new Error(`فشل إدراج الهدر: ${error.message}`)
+    if (error) {
+      if (backup?.length) await supabaseAdmin.from('waste_log').insert(backup)
+      throw new Error(`فشل إدراج الهدر: ${error.message}`)
+    }
   }
   return rows.length
 }
@@ -320,7 +410,7 @@ export async function syncSheets(spreadsheetId: string) {
     if (!sheet.data || sheet.data.length === 0) continue
 
     if (SYSTEM_SHEETS.includes(name)) {
-      if (name.includes('المشتريات')) {
+      if (name === 'المشتريات') {
         console.log(`\n[SYNC] 📦 ورقة مشتريات: "${name}"`)
         console.log(`[SYNC]   صف 0:`, sheet.data[0]?.slice(0, 10))
         console.log(`[SYNC]   صف 1:`, sheet.data[1]?.slice(0, 10))
