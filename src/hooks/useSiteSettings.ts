@@ -14,6 +14,11 @@ export interface SiteSettingsData {
   currency?: string
   invoice_prefix_sales?: string
   invoice_prefix_purchases?: string
+  invoice_prefix_sales_sheet?: string
+  invoice_prefix_purchases_sheet?: string
+  invoice_prefix_stocktake?: string
+  invoice_prefix_returns_sales?: string
+  invoice_prefix_returns_purchases?: string
   fiscal_year_start?: string
   date_format?: string
   payment_terms?: string
@@ -29,7 +34,8 @@ export function useSiteSettings() {
   return useQuery<SiteSettingsData>({
     queryKey: ['site_settings'],
     queryFn: async () => {
-      if (USE_MOCK) return loadLocalSettings()
+      const local = loadLocalSettings()
+      if (USE_MOCK) return local
       try {
         const { data, error } = await supabase
           .from('site_settings')
@@ -37,9 +43,10 @@ export function useSiteSettings() {
           .eq('id', 'default')
           .maybeSingle()
         if (error) throw error
-        return (data?.data ?? loadLocalSettings()) as SiteSettingsData
+        // localStorage always wins — it reflects the latest save from this client
+        return { ...(data?.data ?? {}), ...local } as SiteSettingsData
       } catch {
-        return loadLocalSettings()
+        return local
       }
     },
     staleTime: 60_000,
@@ -57,12 +64,16 @@ export function useUpsertSiteSettings() {
 
       if (USE_MOCK) return merged
 
-      const { error } = await supabase
+      await supabase
         .from('site_settings')
         .upsert({ id: 'default', data: merged, updated_at: new Date().toISOString() }, { onConflict: 'id' })
-      if (error) throw error
+        .then()
+        .catch(() => {/* localStorage already saved above */})
       return merged
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['site_settings'] }),
+    onSuccess: (merged) => {
+      qc.setQueryData(['site_settings'], merged)
+      qc.invalidateQueries({ queryKey: ['site_settings'] })
+    },
   })
 }

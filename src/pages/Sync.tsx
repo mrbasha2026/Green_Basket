@@ -198,19 +198,31 @@ export default function Sync() {
     return { purchases: pRows?.length ?? 0, sales: sRows?.length ?? 0 }
   }
 
-  // تجميع شهر محدد (بعد المزامنة المباشرة)
+  // إعادة تصفير أرقام فواتير Sheets لنطاق زمني (أو كل البيانات)
+  async function resetSheetInvoiceNumbers(from?: string, to?: string) {
+    let pq = supabase.from('purchases').update({ invoice_number: null }).eq('source', 'google_sheet')
+    let sq = supabase.from('sales').update({ invoice_number: null }).eq('source', 'google_sheet')
+    if (from) { pq = pq.gte('date', from); sq = sq.gte('date', from) }
+    if (to)   { pq = pq.lte('date', to);   sq = sq.lte('date', to)   }
+    await Promise.all([pq, sq])
+  }
+
+  // تجميع شهر محدد — يصفّر أولاً ثم يعيد التجميع حسب اليوم
   async function groupSheetDataIntoInvoices(monthKey: string) {
     const from = `${monthKey}-01`
     const d = new Date(monthKey + '-01T12:00:00'); d.setMonth(d.getMonth() + 1); d.setDate(0)
     const to = d.toISOString().split('T')[0]
+    await resetSheetInvoiceNumbers(from, to)
     await runGrouping(from, to)
   }
 
-  // تجميع كل البيانات غير المرقّمة (بدون قيد الشهر)
+  // تجميع كل البيانات — يصفّر الكل أولاً ثم يعيد التجميع حسب اليوم
   const [isGroupingAll, setIsGroupingAll] = useState(false)
   async function handleGroupAll() {
     setIsGroupingAll(true)
     try {
+      toast.loading('جاري إعادة تعيين أرقام الفواتير...', { id: 'group-all' })
+      await resetSheetInvoiceNumbers()
       toast.loading('جاري تجميع كل الفواتير...', { id: 'group-all' })
       const result = await runGrouping()
       toast.success(

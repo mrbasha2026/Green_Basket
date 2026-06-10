@@ -113,6 +113,7 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
   const [supplierId,setSupplierId]=useState(''); const [supplierRef,setSupplierRef]=useState('')
   const [transportCost,setTransportCost]=useState(0); const [rows,setRows]=useState<PurchaseFormRow[]>([emptyRow()])
   const [transactionType,setTransactionType]=useState<'شراء'|'مرتجع_مشتريات'>('شراء')
+  const [purchaseNotes,setPurchaseNotes]=useState('')
 
   useEffect(()=>{
     if(!open) return
@@ -120,8 +121,9 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
       setDate(editGroup.date);setSupplierId(editGroup.supplier_id??'');setSupplierRef(editGroup.supplier_ref??'');setTransportCost(0)
       setTransactionType((editGroup.transaction_type as 'شراء'|'مرتجع_مشتريات')??'شراء');setInvoiceType(editGroup.supplier_id?'مع_فاتورة':'بدون_فاتورة')
       setInvoiceNumber(editGroup.invoice_number??'');setRows(editGroup.items.map(p=>({product_id:p.product_id,cartons_qty:p.cartons_qty,price_per_carton:p.price_per_carton,weight_per_carton:p.weight_per_carton,waste_kg:p.waste_kg})))
+      const n=editGroup.items[0]?.notes??'';setPurchaseNotes(n==='مع_فاتورة'||n==='بدون_فاتورة'?'':n)
     } else {
-      setDate(todayISO());setInvoiceType('مع_فاتورة');setSupplierId('');setSupplierRef('');setTransportCost(0);setRows([emptyRow()]);setTransactionType('شراء')
+      setDate(todayISO());setInvoiceType('مع_فاتورة');setSupplierId('');setSupplierRef('');setTransportCost(0);setRows([emptyRow()]);setTransactionType('شراء');setPurchaseNotes('')
       nextPurchaseInvoiceNumber('PIM').then(setInvoiceNumber).catch(()=>setInvoiceNumber('PIM-00001'))
     }
   },[open,isEdit,editGroup])
@@ -165,7 +167,7 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
       let invNum=invoiceNumber
       if(!isEdit) invNum=await getOrCreateDailyPurchaseInvoice(date,'PIM')
       if(isEdit&&editGroup?.invoice_number) await deleteByInvoice(editGroup.invoice_number)
-      await upsert(valid.map(r=>{const w=r.cartons_qty*r.weight_per_carton;const c=r.cartons_qty*r.price_per_carton;const ts=totalWeight>0?(w/totalWeight)*transportCost:0;return{product_id:r.product_id,date,cartons_qty:r.cartons_qty,price_per_carton:r.price_per_carton,weight_per_carton:r.weight_per_carton,waste_kg:0,cost_per_kg:calcCostPerKg(c+ts,w,0),source:'web' as const,notes:invoiceType,invoice_number:invNum,supplier_id:supplierId||null,supplier_ref:supplierRef||null,transaction_type:transactionType}}))
+      await upsert(valid.map(r=>{const w=r.cartons_qty*r.weight_per_carton;const c=r.cartons_qty*r.price_per_carton;const ts=totalWeight>0?(w/totalWeight)*transportCost:0;return{product_id:r.product_id,date,cartons_qty:r.cartons_qty,price_per_carton:r.price_per_carton,weight_per_carton:r.weight_per_carton,waste_kg:0,cost_per_kg:calcCostPerKg(c+ts,w,0),source:'web' as const,notes:purchaseNotes||null,invoice_number:invNum,supplier_id:supplierId||null,supplier_ref:supplierRef||null,transaction_type:transactionType}}))
       toast.success(isEdit?`تم تعديل ${invNum}`:`تم حفظ ${invNum}`); onClose()
     }catch{toast.error('حدث خطأ أثناء الحفظ')}
   }
@@ -223,15 +225,22 @@ function PurchaseDrawer({ open, onClose, editGroup }: { open: boolean; onClose: 
             </div>
           </div>
         </div>
-        {invoiceType==='مع_فاتورة'&&(
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5"><Label>المورد <span className="text-danger">*</span></Label><Combobox options={supplierOptions} value={supplierId} onValueChange={setSupplierId} placeholder="اختر مورد..."/></div>
-            <div className="space-y-1.5"><Label>رقم مرجع المورد</Label><Input placeholder="INV-2026-001" value={supplierRef} onChange={e=>setSupplierRef(e.target.value)} dir="ltr"/></div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label>المورد {invoiceType==='مع_فاتورة'&&<span className="text-danger">*</span>}</Label>
+            <Combobox options={supplierOptions} value={supplierId} onValueChange={setSupplierId} placeholder="اختر مورد..."/>
           </div>
-        )}
-        <div className="space-y-1.5">
-          <Label>مصاريف النقل (ر.س)</Label>
-          <Input type="number" min="0" step="0.01" placeholder="0" dir="ltr" value={transportCost||''} onChange={e=>setTransportCost(parseFloat(e.target.value)||0)}/>
+          <div className="space-y-1.5"><Label>رقم مرجع المورد</Label><Input placeholder="INV-2026-001" value={supplierRef} onChange={e=>setSupplierRef(e.target.value)} dir="ltr"/></div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label>مصاريف النقل (ر.س)</Label>
+            <Input type="number" min="0" step="0.01" placeholder="0" dir="ltr" value={transportCost||''} onChange={e=>setTransportCost(parseFloat(e.target.value)||0)}/>
+          </div>
+          <div className="space-y-1.5">
+            <Label>ملاحظات</Label>
+            <Input placeholder="ملاحظات اختيارية..." value={purchaseNotes} onChange={e=>setPurchaseNotes(e.target.value)}/>
+          </div>
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between">

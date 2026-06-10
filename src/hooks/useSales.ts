@@ -10,16 +10,16 @@ async function fetchAllSales(filters?: { customerId?: string; date?: string; pro
   let all: Sale[] = []
   let start = 0
   while (true) {
-    const q = supabase
+    let q = supabase
       .from('sales')
       .select('*, product:products(*), customer:customers(*)')
       .order('date', { ascending: false })
       .range(start, start + PAGE - 1)
-    if (filters?.customerId) q.eq('customer_id', filters.customerId)
-    if (filters?.date) q.eq('date', filters.date)
-    if (filters?.productId) q.eq('product_id', filters.productId)
-    if (filters?.from) q.gte('date', filters.from)
-    if (filters?.to) q.lte('date', filters.to)
+    if (filters?.customerId) q = q.eq('customer_id', filters.customerId)
+    if (filters?.date)       q = q.eq('date', filters.date)
+    if (filters?.productId)  q = q.eq('product_id', filters.productId)
+    if (filters?.from)       q = q.gte('date', filters.from)
+    if (filters?.to)         q = q.lte('date', filters.to)
     const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break

@@ -1,4 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useRegisterSW } from 'virtual:pwa-register/react'
+import { useEffect } from 'react'
+import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Layout } from '@/components/layout/Layout'
@@ -17,6 +20,7 @@ import Waste from '@/pages/Waste'
 import Sync from '@/pages/Sync'
 import Reports from '@/pages/Reports'
 import Settings from '@/pages/Settings'
+import Profile from '@/pages/Profile'
 import Login from '@/pages/Login'
 import { usePermissionWithLoading } from '@/hooks/usePermissions'
 import type { ReactNode } from 'react'
@@ -29,11 +33,24 @@ function Guard({ screen, children }: { screen: string; children: ReactNode }) {
   return <>{children}</>
 }
 
+function PWAUpdater() {
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
+  useEffect(() => {
+    if (!needRefresh) return
+    toast('يوجد تحديث جديد للتطبيق', {
+      duration: Infinity,
+      action: { label: 'تحديث', onClick: () => updateServiceWorker(true) },
+    })
+  }, [needRefresh, updateServiceWorker])
+  return null
+}
+
 export default function App() {
   useAuthInit()
 
   return (
     <ErrorBoundary>
+      <PWAUpdater />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -52,6 +69,7 @@ export default function App() {
             <Route path="/sync" element={<Guard screen="sync"><Sync /></Guard>} />
             <Route path="/reports" element={<Guard screen="reports"><Reports /></Guard>} />
             <Route path="/settings" element={<Guard screen="settings"><Settings /></Guard>} />
+            <Route path="/profile" element={<Profile />} />
           </Route>
         </Routes>
         <Toaster position="top-center" richColors />

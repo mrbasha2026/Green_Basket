@@ -11,14 +11,14 @@ async function fetchAllPurchases(filters?: { date?: string; from?: string; to?: 
   let all: Purchase[] = []
   let start = 0
   while (true) {
-    const q = supabase
+    let q = supabase
       .from('purchases')
       .select('*, product:products(*), supplier:suppliers(*)')
       .order('date', { ascending: false })
       .range(start, start + PAGE - 1)
-    if (filters?.date) q.eq('date', filters.date)
-    if (filters?.from) q.gte('date', filters.from)
-    if (filters?.to) q.lte('date', filters.to)
+    if (filters?.date) q = q.eq('date', filters.date)
+    if (filters?.from) q = q.gte('date', filters.from)
+    if (filters?.to)   q = q.lte('date', filters.to)
     const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break

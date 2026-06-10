@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Leaf } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -7,7 +7,10 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
-import { useEffect } from 'react'
+
+function loadSiteSettings() {
+  try { return JSON.parse(localStorage.getItem('gb_site_settings') ?? '{}') } catch { return {} }
+}
 
 export default function Login() {
   const { session, signIn } = useAuth()
@@ -15,6 +18,7 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [site] = useState(loadSiteSettings)
 
   useEffect(() => {
     if (session) navigate('/', { replace: true })
@@ -37,12 +41,14 @@ export default function Login() {
       <div className="w-full max-w-sm space-y-6">
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center shadow-lg">
-            <Leaf className="w-8 h-8 text-primary-foreground" />
+          <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center shadow-lg overflow-hidden">
+            {site.logo
+              ? <img src={site.logo} alt="logo" className="w-full h-full object-contain" />
+              : <Leaf className="w-8 h-8 text-primary-foreground" />}
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-foreground">Greenbasket</h1>
-            <p className="text-sm text-muted-foreground">نظام إدارة متجر الخضار والفاكهة</p>
+            <h1 className="text-2xl font-bold text-foreground">{site.name || 'Greenbasket'}</h1>
+            <p className="text-sm text-muted-foreground">{site.tagline || 'نظام إدارة متجر الخضار والفاكهة'}</p>
           </div>
         </div>
 
