@@ -19,13 +19,13 @@ export function useWaste(filters?: { date?: string; month?: number; year?: numbe
         : undefined
 
       return fetchAllPages<WasteLog>((start, end) => {
-        const q = supabase
+        let q = supabase
           .from('waste_log')
           .select('*, product:products(*)')
           .order('date', { ascending: false })
           .range(start, end)
-        if (filters?.date) q.eq('date', filters.date)
-        if (from && to) q.gte('date', from).lte('date', to)
+        if (filters?.date) q = q.eq('date', filters.date)
+        if (from && to) q = q.gte('date', from).lte('date', to)
         return q
       })
     },

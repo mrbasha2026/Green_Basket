@@ -50,11 +50,23 @@ export default function AccountStatement() {
   const { data: products } = useProducts()
 
   const DISABLED = '9999-01-01'
-  const qFrom = applied && partyId ? fromDate : DISABLED
-  const qTo = applied && partyId ? toDate : DISABLED
+  const EPOCH    = '2000-01-01'
 
-  const { data: sales, isLoading: sLoading } = useSalesByRange(qFrom, qTo)
-  const { data: purchases, isLoading: pLoading } = usePurchasesByRange(qFrom, qTo)
+  const qFrom = applied && partyId ? fromDate : DISABLED
+  const qTo   = applied && partyId ? toDate   : DISABLED
+
+  // يوم قبل الفترة المختارة لاحتساب الرصيد الافتتاحي
+  const dayBefore = useMemo(() => {
+    if (!applied || !partyId) return DISABLED
+    const d = new Date(fromDate + 'T12:00:00')
+    d.setDate(d.getDate() - 1)
+    return d.toISOString().split('T')[0]
+  }, [applied, partyId, fromDate])
+
+  const { data: sales,           isLoading: sLoading } = useSalesByRange(qFrom, qTo)
+  const { data: purchases,       isLoading: pLoading } = usePurchasesByRange(qFrom, qTo)
+  const { data: salesBefore    }                        = useSalesByRange(applied && partyId ? EPOCH : DISABLED, dayBefore)
+  const { data: purchasesBefore}                        = usePurchasesByRange(applied && partyId ? EPOCH : DISABLED, dayBefore)
 
   const isLoading = sLoading || pLoading
 
@@ -97,11 +109,25 @@ export default function AccountStatement() {
       .sort((a, b) => a.date.localeCompare(b.date))
   }, [applied, partyId, partyType, sales, purchases, productFilter, typeFilter])
 
-  // Running balance
+  // الرصيد الافتتاحي = مجموع الحركات قبل الفترة المختارة
+  const openingBalance = useMemo(() => {
+    if (!applied || !partyId) return 0
+    if (partyType === 'customer') {
+      return (salesBefore ?? [])
+        .filter(s => s.customer_id === partyId)
+        .reduce((sum, s) => sum + s.total_amount * (s.transaction_type === 'مرتجع_مبيعات' ? -1 : 1), 0)
+    } else {
+      return (purchasesBefore ?? [])
+        .filter(p => p.supplier_id === partyId)
+        .reduce((sum, p) => sum + p.total_cost * (p.transaction_type === 'مرتجع_مشتريات' ? -1 : 1), 0)
+    }
+  }, [applied, partyId, partyType, salesBefore, purchasesBefore])
+
+  // Running balance — يبدأ من الرصيد الافتتاحي
   const rowsWithBalance = useMemo(() => {
-    let balance = 0
+    let balance = openingBalance
     return rows.map(r => { balance += r.amount; return { ...r, balance } })
-  }, [rows])
+  }, [rows, openingBalance])
 
   const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows])
 
@@ -263,6 +289,19 @@ export default function AccountStatement() {
                       </tr>
                     </thead>
                     <tbody>
+                      {openingBalance !== 0 && (
+                        <tr className="border-b border-border bg-primary/5">
+                          <td className="px-3 py-2 text-xs text-muted-foreground">—</td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(fromDate)}</td>
+                          <td className="px-3 py-2 text-xs" colSpan={4}>
+                            <span className="font-medium text-muted-foreground">رصيد افتتاحي (قبل الفترة)</span>
+                          </td>
+                          <td className="px-3 py-2" />
+                          <td className={cn('px-3 py-2 font-bold text-sm', openingBalance >= 0 ? 'text-success' : 'text-danger')}>
+                            {formatNumber(openingBalance)}
+                          </td>
+                        </tr>
+                      )}
                       {rowsWithBalance.length === 0 ? (
                         <tr><td colSpan={8} className="px-3 py-10 text-center text-muted-foreground text-sm">لا توجد حركات في هذه الفترة</td></tr>
                       ) : rowsWithBalance.map((row, i) => (

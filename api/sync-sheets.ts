@@ -396,9 +396,7 @@ export async function syncSheets(spreadsheetId: string) {
     buildCache(),
   ])
 
-  console.log(`\n[SYNC] ورقات موجودة (${allSheets.length}):`, allSheets.map(s => s.name))
-  console.log(`[SYNC] منتجات في الـ cache: ${cache.aliasMap.size}`)
-  console.log(`[SYNC] عملاء مربوطون: ${cache.sheetMap.size} →`, [...cache.sheetMap.keys()])
+  console.log(`[SYNC] ورقات: ${allSheets.length} | منتجات: ${cache.aliasMap.size} | عملاء: ${cache.sheetMap.size}`)
 
   let totalImported = 0
   let newCustomers = 0
@@ -411,34 +409,19 @@ export async function syncSheets(spreadsheetId: string) {
 
     if (SYSTEM_SHEETS.includes(name)) {
       if (name === 'المشتريات') {
-        console.log(`\n[SYNC] 📦 ورقة مشتريات: "${name}"`)
-        console.log(`[SYNC]   صف 0:`, sheet.data[0]?.slice(0, 10))
-        console.log(`[SYNC]   صف 1:`, sheet.data[1]?.slice(0, 10))
-        console.log(`[SYNC]   صف 2:`, sheet.data[2]?.slice(0, 10))
         const records = parsePurchasesSheet(sheet.data)
-        console.log(`[SYNC]   سجلات parsed: ${records.length}`)
-        if (records.length > 0) console.log(`[SYNC]   عينة:`, records[0])
-        const notFound = records.filter(r => !cache.aliasMap.get(r.productName.toUpperCase().trim()))
-        if (notFound.length > 0) console.log(`[SYNC]   ⚠️ غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
         const purchaseCount = await importPurchases(records, cache, allUnmatchedProducts)
         const wasteCount = await importWaste(records, cache, allUnmatchedProducts)
-        console.log(`[SYNC]   ✅ مشتريات: ${purchaseCount} | هدر: ${wasteCount}`)
+        console.log(`[SYNC] مشتريات: ${purchaseCount} | هدر: ${wasteCount}`)
         totalImported += purchaseCount
       }
     } else {
       const customerId = findCustomerId(name, cache.sheetMap)
       if (customerId) {
-        console.log(`\n[SYNC] 🛒 ورقة عميل: "${name}"`)
-        console.log(`[SYNC]   صف 0:`, sheet.data[0]?.slice(0, 10))
-        console.log(`[SYNC]   صف 1:`, sheet.data[1]?.slice(0, 10))
-        console.log(`[SYNC]   صف 2:`, sheet.data[2]?.slice(0, 10))
         const records = parseCustomerSheet(sheet.data)
-        console.log(`[SYNC]   سجلات parsed: ${records.length}`)
-        if (records.length > 0) console.log(`[SYNC]   عينة:`, records[0])
         const notFound = records.filter(r => !cache.aliasMap.get(r.productName.toUpperCase().trim()))
-        if (notFound.length > 0) console.log(`[SYNC]   ⚠️ غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
+        if (notFound.length > 0) console.log(`[SYNC] غير مربوطة:`, [...new Set(notFound.map(r => r.productName))])
         const count = await importSales(records, customerId, cache, allUnmatchedProducts)
-        console.log(`[SYNC]   ✅ مستوردة: ${count}`)
         totalImported += count
       } else {
         pendingCustomers.push(name)
@@ -469,10 +452,10 @@ export async function syncSheets(spreadsheetId: string) {
       .filter(n => !existingPNames.has(n))
       .map(n => ({ type: 'product', raw_name: n, status: 'pending' }))
     if (toInsertP.length > 0) await supabaseAdmin.from('sync_pending_review').insert(toInsertP)
-    console.log(`[SYNC] ⚠️ منتجات غير مطابقة (${allUnmatchedProducts.size}):`, [...allUnmatchedProducts])
+    console.log(`[SYNC] منتجات غير مطابقة: ${allUnmatchedProducts.size}`)
   }
 
-  console.log(`\n[SYNC] ✅ انتهت المزامنة — إجمالي مستورد: ${totalImported}`)
+  console.log(`[SYNC] انتهت المزامنة — إجمالي مستورد: ${totalImported}`)
   return {
     imported: totalImported,
     newCustomers,
@@ -491,6 +474,24 @@ export default async function handler(req: Request): Promise<Response> {
 
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
   if (error || !user) return new Response('Unauthorized', { status: 401 })
+
+  // تحقق من صلاحية sync.import (ما عدا المدير الأول بلا role)
+  const { data: profile } = await supabaseAdmin
+    .from('user_profiles')
+    .select('role_id')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (profile?.role_id) {
+    const { data: perm } = await supabaseAdmin
+      .from('role_permissions')
+      .select('id')
+      .eq('role_id', profile.role_id)
+      .eq('screen', 'sync')
+      .eq('action', 'import')
+      .maybeSingle()
+    if (!perm) return new Response('Forbidden', { status: 403 })
+  }
 
   let reqSpreadsheetId: string | undefined
   try {

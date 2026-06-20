@@ -28,7 +28,7 @@ import type { ReactNode } from 'react'
 // حارس المسار — يعيد للرئيسية إذا لم يكن للمستخدم صلاحية العرض
 function Guard({ screen, children }: { screen: string; children: ReactNode }) {
   const { allowed, isLoading } = usePermissionWithLoading(screen, 'view')
-  if (isLoading) return null
+  if (isLoading) return <div className="min-h-[60vh] animate-pulse bg-muted/30 rounded-lg m-6" />
   if (!allowed) return <Navigate to="/" replace />
   return <>{children}</>
 }

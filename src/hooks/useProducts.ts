@@ -40,8 +40,8 @@ export function useProductAliases(productId?: string) {
   return useQuery<ProductAlias[]>({
     queryKey: ['product_aliases', productId],
     queryFn: async () => {
-      const q = supabase.from('product_aliases').select('*')
-      if (productId) q.eq('product_id', productId)
+      let q = supabase.from('product_aliases').select('*')
+      if (productId) q = q.eq('product_id', productId)
       const { data, error } = await q
       if (error) throw error
       return data as ProductAlias[]

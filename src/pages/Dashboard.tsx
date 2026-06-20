@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { TrendingUp, ShoppingCart, Trash2, DollarSign, AlertTriangle, Package, BarChart3, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
+import { TrendingUp, ShoppingCart, Trash2, DollarSign, AlertTriangle, Package, BarChart3, ArrowUpRight, ArrowDownRight, Users } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DailyStocktakeBanner } from '@/components/inventory/DailyStocktake'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,7 +8,7 @@ import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange } from '@/hooks/usePurchases'
-import { useWaste } from '@/hooks/useWaste'
+import { useWasteByRange } from '@/hooks/useWaste'
 import { useInventoryDaily } from '@/hooks/useInventory'
 import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 
@@ -59,7 +59,7 @@ export default function Dashboard() {
 
   const { data: salesRange, isLoading: salesLoading } = useSalesByRange(dateFrom, dateTo)
   const { data: purchasesRange, isLoading: purchasesLoading } = usePurchasesByRange(dateFrom, dateTo)
-  const { data: wasteData } = useWaste()
+  const { data: wasteData } = useWasteByRange(dateFrom, dateTo)
   const { data: inventory } = useInventoryDaily(today)
 
   const isLoading = salesLoading || purchasesLoading
@@ -73,8 +73,7 @@ export default function Dashboard() {
   const salesReturns = useMemo(() => (salesRange ?? []).filter(s => s.transaction_type === 'مرتجع_مبيعات').reduce((s, r) => s + r.total_amount, 0), [salesRange])
   const invoiceCount = useMemo(() => new Set((salesRange ?? []).filter(s => s.invoice_number && s.transaction_type !== 'مرتجع_مبيعات').map(s => s.invoice_number)).size, [salesRange])
 
-  const wasteInRange = useMemo(() => (wasteData ?? []).filter(w => w.date >= dateFrom && w.date <= dateTo), [wasteData, dateFrom, dateTo])
-  const totalWasteKg = useMemo(() => wasteInRange.reduce((s, w) => s + w.waste_kg, 0), [wasteInRange])
+  const totalWasteKg = useMemo(() => (wasteData ?? []).reduce((s, w) => s + w.waste_kg, 0), [wasteData])
   const totalPurchasedKg = useMemo(() => (purchasesRange ?? []).reduce((s, p) => s + (p.total_weight ?? 0), 0), [purchasesRange])
   const wastePercent = totalPurchasedKg > 0 ? (totalWasteKg / totalPurchasedKg) * 100 : 0
 
@@ -145,7 +144,7 @@ export default function Dashboard() {
           { to: '/waste', label: 'تسجيل هدر', icon: Trash2, color: 'bg-warning/10 text-warning border-warning/20 hover:bg-warning/20' },
           { to: '/inventory', label: 'جرد المخزون', icon: Package, color: 'bg-purple-500/10 text-purple-600 border-purple-200 hover:bg-purple-500/20 dark:border-purple-900' },
           { to: '/reports', label: 'التقارير', icon: BarChart3, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
-          { to: '/customers', label: 'العملاء', icon: RefreshCw, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
+          { to: '/customers', label: 'العملاء', icon: Users, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
           { to: '/account-statement', label: 'كشف الحساب', icon: DollarSign, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
           { to: '/analytics', label: 'الإحصائيات', icon: TrendingUp, color: 'bg-muted/60 text-foreground border-border hover:bg-muted' },
         ].map(a => (
@@ -297,7 +296,7 @@ export default function Dashboard() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">ملخص يومي</CardTitle>
-              <Link to="/analytics" className="text-xs text-primary hover:underline font-medium">عرض التحليلات ←</Link>
+              <Link to="/analytics" className="text-xs text-primary hover:underline font-medium">عرض التحليلات →</Link>
             </div>
           </CardHeader>
           <CardContent>

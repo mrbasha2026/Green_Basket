@@ -1,4 +1,4 @@
-import { Sun, Moon, LogOut, User, Download } from 'lucide-react'
+import { Sun, Moon, LogOut, User, Download, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store/appStore'
 import { useAuth } from '@/hooks/useAuth'
@@ -14,9 +14,10 @@ import { usePWAInstall } from '@/hooks/usePWAInstall'
 
 interface HeaderProps {
   title: string
+  onMenuToggle: () => void
 }
 
-export function Header({ title }: HeaderProps) {
+export function Header({ title, onMenuToggle }: HeaderProps) {
   const { theme, toggleTheme } = useAppStore()
   const { session, signOut } = useAuth()
   const navigate = useNavigate()
@@ -24,7 +25,12 @@ export function Header({ title }: HeaderProps) {
 
   return (
     <header className="h-16 bg-card border-b border-border flex items-center justify-between px-6">
-      <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={onMenuToggle} className="lg:hidden">
+          <Menu className="w-4 h-4" />
+        </Button>
+        <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+      </div>
 
       <div className="flex items-center gap-2">
         {canInstall && (

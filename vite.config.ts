@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
           name: 'Greenbasket',
           short_name: 'GB',
           description: 'نظام إدارة متجر الخضار والفاكهة',
-          theme_color: '#863bff',
+          theme_color: '#16a34a',
           background_color: '#ffffff',
           display: 'standalone',
           scope: '/',

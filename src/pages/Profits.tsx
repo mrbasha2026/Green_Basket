@@ -54,15 +54,30 @@ export default function Profits() {
     [allWaste, fromDate, toDate]
   )
 
-  // Waste cost per product in the selected range
+  // WAC المرجح لكل صنف من المبيعات (أدق من آخر سعر شراء)
+  const wacByProduct = useMemo(() => {
+    const acc: Record<string, { cost: number; qty: number }> = {}
+    ;(sales ?? []).forEach(s => {
+      if (s.purchase_price_per_kg > 0) {
+        const ex = acc[s.product_id] ?? { cost: 0, qty: 0 }
+        acc[s.product_id] = { cost: ex.cost + s.purchase_price_per_kg * s.qty_kg, qty: ex.qty + s.qty_kg }
+      }
+    })
+    return acc
+  }, [sales])
+
+  // تكلفة الهالك باستخدام WAC المحسوب، مع fallback لآخر سعر شراء
   const wasteCostByProduct = useMemo(() => {
     const result: Record<string, number> = {}
     wasteInRange.forEach(w => {
-      const wac = latestCosts?.[w.product_id] ?? 0
+      const wacData = wacByProduct[w.product_id]
+      const wac = wacData && wacData.qty > 0
+        ? wacData.cost / wacData.qty
+        : (latestCosts?.[w.product_id] ?? 0)
       result[w.product_id] = (result[w.product_id] ?? 0) + w.waste_kg * wac
     })
     return result
-  }, [wasteInRange, latestCosts])
+  }, [wasteInRange, wacByProduct, latestCosts])
 
   const profitRows = useMemo<ProfitRow[]>(() => {
     const map = new Map<string, { name: string; qty: number; revenue: number; cost: number }>()

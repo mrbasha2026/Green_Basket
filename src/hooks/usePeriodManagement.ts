@@ -143,7 +143,8 @@ export function useCalculatePeriodWAC() {
 
         const openingValue  = opening.qty * opening.wac
         const totalValue    = openingValue + purchasedValue
-        const availableQty  = opening.qty + purchasedWeight - wasteQty
+        // الهالك لا يُخصم من مقام WAC — تكلفته تُحمَّل في قائمة الدخل مرة واحدة عبر useCalculateCostAllocation
+        const availableQty  = opening.qty + purchasedWeight
         const wac = availableQty > 0
           ? totalValue / availableQty
           : opening.wac > 0 ? opening.wac : purchasedValue / Math.max(purchasedWeight, 0.001)
@@ -217,6 +218,14 @@ export function useClosePeriod() {
         .select('id').eq('period_year', year).eq('period_month', month).limit(1)
       if (!closeData?.length) {
         throw new Error('يجب احتساب WAC أولاً قبل الإغلاق')
+      }
+
+      // التحقق: قائمة الدخل محتسبة
+      const { data: plData } = await supabase
+        .from('monthly_pl')
+        .select('id').eq('period_year', year).eq('period_month', month).limit(1)
+      if (!plData?.length) {
+        throw new Error('يجب احتساب قائمة الدخل (محاسبة التكاليف) أولاً قبل الإغلاق')
       }
 
       await supabase.from('accounting_periods').upsert(

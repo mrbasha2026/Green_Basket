@@ -312,7 +312,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
     }},
     { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => (
       <Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10"
-        onClick={async () => { await deleteSale(row.original.id); toast.success('تم الحذف') }}>
+        onClick={async () => { if (!confirm('هل أنت متأكد من حذف هذا السجل؟')) return; await deleteSale(row.original.id); toast.success('تم الحذف') }}>
         <Trash2 className="w-3 h-3"/>
       </Button>
     )},
@@ -344,7 +344,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
           <>
             <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
-              onClick={async () => { for (const id of selectedIds) await deleteSale(id); setSelectedIds(new Set()); toast.success(`تم حذف ${selectedIds.size} سجل`) }}>
+              onClick={async () => { const ids=[...selectedIds]; if (!confirm(`هل أنت متأكد من حذف ${ids.length} سجل؟`)) return; await Promise.all(ids.map(id=>deleteSale(id))); setSelectedIds(new Set()); toast.success(`تم حذف ${ids.length} سجل`) }}>
               <Trash2 className="w-3 h-3"/>حذف المحدد
             </Button>
           </>

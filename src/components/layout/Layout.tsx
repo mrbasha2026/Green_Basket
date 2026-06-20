@@ -1,4 +1,5 @@
 import { Outlet, useLocation, Navigate } from 'react-router-dom'
+import { useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { useAuth } from '@/hooks/useAuth'
@@ -21,6 +22,7 @@ const pageTitles: Record<string, string> = {
 export function Layout() {
   const { session, loading } = useAuth()
   const { pathname } = useLocation()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   if (loading) {
     return (
@@ -42,9 +44,15 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar />
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header title={title} />
+        <Header title={title} onMenuToggle={() => setSidebarOpen(v => !v)} />
         <main className="flex-1 p-6 overflow-auto">
           <Outlet />
         </main>

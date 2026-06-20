@@ -42,8 +42,13 @@ export function useCurrentUserPermissions() {
         .eq('id', userId)
         .maybeSingle()
 
-      // إذا لم يكن للمستخدم دور، يُعامَل كمدير نظام (للحساب الأول)
+      // إذا لم يكن للمستخدم دور، يُعامَل كمدير نظام للمستخدم الأول فقط
       if (!profile.data?.role_id) {
+        const { count } = await supabase
+          .from('user_profiles')
+          .select('id', { count: 'exact', head: true })
+        if ((count ?? 0) > 1) return new Map()
+
         const { data: adminRoles } = await supabase
           .from('roles')
           .select('id')

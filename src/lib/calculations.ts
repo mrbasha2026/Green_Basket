@@ -5,10 +5,9 @@ export function calcWeightedAvgCost(
   openingCostPerKg: number,
   purchasedWeight: number,
   purchaseCost: number,
-  wasteKg: number
 ): number {
   const totalValue = openingStock * openingCostPerKg + purchaseCost
-  const availableStock = openingStock + purchasedWeight - wasteKg
+  const availableStock = openingStock + purchasedWeight
   if (availableStock <= 0) return 0
   return totalValue / availableStock
 }

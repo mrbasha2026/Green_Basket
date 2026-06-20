@@ -118,6 +118,21 @@ export function useDeleteSheetDataByMonth() {
   return useMutation({
     mutationFn: async (monthKey: string) => {
       // monthKey format: "YYYY-MM"
+      const [yearStr, monthStr] = monthKey.split('-')
+      const year = Number(yearStr)
+      const month = Number(monthStr)
+
+      // منع الحذف إذا كانت الفترة مغلقة
+      const { data: period } = await supabase
+        .from('accounting_periods')
+        .select('status')
+        .eq('period_year', year)
+        .eq('period_month', month)
+        .maybeSingle()
+      if (period?.status === 'closed') {
+        throw new Error('لا يمكن تعديل بيانات فترة مغلقة — يجب فتح الفترة أولاً')
+      }
+
       const from = `${monthKey}-01`
       const d = new Date(monthKey + '-01T12:00:00')
       d.setMonth(d.getMonth() + 1)

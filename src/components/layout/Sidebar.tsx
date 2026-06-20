@@ -44,7 +44,12 @@ const reportsGroup = {
   ],
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const site = useSiteSettings()
   const { pathname } = useLocation()
 
@@ -56,8 +61,18 @@ export function Sidebar() {
     if (groupActive) setGroupOpen(true)
   }, [groupActive])
 
+  // أغلق القائمة عند التنقل على الموبايل
+  useEffect(() => {
+    onClose()
+  }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <aside className="w-64 min-h-screen bg-card border-l border-border flex flex-col">
+    <aside className={cn(
+      'w-64 bg-card border-l border-border flex flex-col',
+      'fixed inset-y-0 right-0 z-30 min-h-screen transition-transform duration-200',
+      'lg:static lg:translate-x-0 lg:z-auto',
+      isOpen ? 'translate-x-0' : 'translate-x-full',
+    )}>
       {/* Logo */}
       <div className="p-6 flex items-center gap-3 border-b border-border">
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden shrink-0 ${site.logo ? 'bg-transparent' : 'bg-primary'}`}>

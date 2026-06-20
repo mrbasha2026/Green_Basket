@@ -37,8 +37,8 @@ export default function Profile() {
       toast.error('كلمتا المرور غير متطابقتين')
       return
     }
-    if (passwords.newPass.length < 6) {
-      toast.error('كلمة المرور يجب أن تكون 6 أحرف على الأقل')
+    if (passwords.newPass.length < 12) {
+      toast.error('كلمة المرور يجب أن تكون 12 حرفاً على الأقل')
       return
     }
     setSavingPass(true)

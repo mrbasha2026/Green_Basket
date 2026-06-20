@@ -381,7 +381,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
               <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
-                onClick={async () => { for (const id of selectedIds) { await deletePurchase(id) } setSelectedIds(new Set()); toast.success(`تم حذف ${selectedIds.size} سجل`) }}>
+                onClick={async () => { const ids=[...selectedIds]; if (!confirm(`هل أنت متأكد من حذف ${ids.length} سجل؟`)) return; await Promise.all(ids.map(id=>deletePurchase(id))); setSelectedIds(new Set()); toast.success(`تم حذف ${ids.length} سجل`) }}>
                 <Trash2 className="w-3 h-3"/>حذف المحدد
               </Button>
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>إلغاء</Button>
@@ -426,7 +426,7 @@ function PurchaseRecordsSection({ purchases, products, isLoading }: {
           { accessorKey: 'total_cost', header: 'الإجمالي', cell: ({ getValue }) => <span className="font-semibold text-xs">{formatNumber(getValue() as number)}</span> },
           ...(canDelete ? [{ id: 'actions', header: '', enableSorting: false, cell: ({ row }: { row: { original: Purchase } }) => (
             <Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10"
-              onClick={async () => { await deletePurchase(row.original.id); toast.success('تم الحذف') }}>
+              onClick={async () => { if (!confirm('هل أنت متأكد من حذف هذا السجل؟')) return; await deletePurchase(row.original.id); toast.success('تم الحذف') }}>
               <Trash2 className="w-3 h-3"/>
             </Button>
           )} as ColumnDef<Purchase>] : []),

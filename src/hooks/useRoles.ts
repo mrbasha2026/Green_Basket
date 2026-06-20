@@ -43,6 +43,7 @@ export function useRolePermissions(roleId: string | undefined) {
 export function useAllUsers() {
   return useQuery<UserProfile[]>({
     queryKey: ['all_users'],
+    staleTime: 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -133,7 +134,13 @@ export function useSetRolePermissions() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ roleId, screen, actions }: { roleId: string; screen: string; actions: Action[] }) => {
-      // احذف الصلاحيات الحالية لهذا الدور وهذه الشاشة
+      // نسخة احتياطية قبل الحذف
+      const { data: backup } = await supabase
+        .from('role_permissions')
+        .select('role_id, screen, action')
+        .eq('role_id', roleId)
+        .eq('screen', screen)
+
       await supabase
         .from('role_permissions')
         .delete()
@@ -144,7 +151,11 @@ export function useSetRolePermissions() {
 
       const rows = actions.map(action => ({ role_id: roleId, screen, action }))
       const { error } = await supabase.from('role_permissions').insert(rows)
-      if (error) throw error
+      if (error) {
+        // استعادة من النسخة الاحتياطية عند فشل الإدراج
+        if (backup?.length) await supabase.from('role_permissions').insert(backup)
+        throw error
+      }
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['role_permissions', vars.roleId] })
