@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 function loadSiteSettings() {
@@ -19,7 +20,28 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [site] = useState(loadSiteSettings)
+  const [site, setSite] = useState(loadSiteSettings)
+
+  // Stay in sync when settings change (e.g. saved from another tab)
+  useEffect(() => {
+    const handler = () => setSite(loadSiteSettings())
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  }, [])
+
+  // Fetch from Supabase if localStorage is empty (new device / cleared cache)
+  useEffect(() => {
+    const local = loadSiteSettings()
+    if (local.name || local.logo) return
+    supabase.from('site_settings').select('data').eq('id', 'default').maybeSingle()
+      .then(({ data }) => {
+        if (data?.data) {
+          localStorage.setItem('gb_site_settings', JSON.stringify(data.data))
+          setSite(data.data)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (session) navigate('/', { replace: true })
@@ -42,7 +64,7 @@ export default function Login() {
       <div className="w-full max-w-sm space-y-6">
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center shadow-lg overflow-hidden">
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg overflow-hidden ${site.logo ? 'bg-transparent' : 'bg-primary'}`}>
             {site.logo
               ? <img src={site.logo} alt="logo" className="w-full h-full object-contain" />
               : <Leaf className="w-8 h-8 text-primary-foreground" />}

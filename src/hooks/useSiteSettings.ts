@@ -45,7 +45,16 @@ export function useSiteSettings() {
           .maybeSingle()
         if (error) throw error
         // localStorage always wins — it reflects the latest save from this client
-        return { ...(data?.data ?? {}), ...local } as SiteSettingsData
+        const merged = { ...(data?.data ?? {}), ...local } as SiteSettingsData
+        // Sync back to localStorage so Sidebar, Login, and SiteMetaSync stay in sync
+        if (data?.data) {
+          const stored = JSON.stringify(merged)
+          if (stored !== localStorage.getItem(FALLBACK_KEY)) {
+            localStorage.setItem(FALLBACK_KEY, stored)
+            window.dispatchEvent(new Event('storage'))
+          }
+        }
+        return merged
       } catch {
         return local
       }
