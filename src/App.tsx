@@ -61,6 +61,30 @@ function InstallPromptNotifier() {
   return null
 }
 
+function SiteMetaSync() {
+  useEffect(() => {
+    function sync() {
+      try {
+        const s = JSON.parse(localStorage.getItem('gb_site_settings') ?? '{}')
+        if (s.name) document.title = s.name
+        if (s.logo) {
+          let link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')
+          if (!link) {
+            link = document.createElement('link')
+            link.rel = 'icon'
+            document.head.appendChild(link)
+          }
+          link.href = s.logo
+        }
+      } catch {}
+    }
+    sync()
+    window.addEventListener('storage', sync)
+    return () => window.removeEventListener('storage', sync)
+  }, [])
+  return null
+}
+
 export default function App() {
   useAuthInit()
 
@@ -68,6 +92,7 @@ export default function App() {
     <ErrorBoundary>
       <PWAUpdater />
       <InstallPromptNotifier />
+      <SiteMetaSync />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Suspense fallback={<PageFallback />}><Login /></Suspense>} />
