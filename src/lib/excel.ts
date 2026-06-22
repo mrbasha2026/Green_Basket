@@ -63,6 +63,48 @@ async function _exportToExcel(
   setTimeout(() => URL.revokeObjectURL(a.href), 100)
 }
 
+// ── Multi-sheet export ────────────────────────────────────────────────────────
+export async function exportMultiSheetExcel(
+  filename: string,
+  sheets: { name: string; headers: string[]; rows: (string | number | null | undefined)[][] }[]
+) {
+  const { Workbook } = await import('exceljs')
+  const wb = new Workbook()
+
+  for (const sheet of sheets) {
+    if (sheet.headers.length === 0) continue
+    const ws = wb.addWorksheet(sheet.name)
+    const headerRow = ws.addRow(sheet.headers)
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF16A34A' } }
+      cell.alignment = { horizontal: 'right' }
+    })
+    sheet.rows.forEach(r => {
+      const row = ws.addRow(r.map(v => v ?? ''))
+      row.eachCell(cell => { cell.alignment = { horizontal: 'right' } })
+    })
+    ws.columns.forEach(col => {
+      let max = 12
+      col.eachCell?.({ includeEmpty: false }, cell => {
+        const len = String(cell.value ?? '').length
+        if (len > max) max = len
+      })
+      col.width = Math.min(max + 2, 35)
+    })
+  }
+
+  const buffer = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(a.href), 100)
+}
+
 // ── Template download ─────────────────────────────────────────────────────────
 export async function downloadTemplate(filename: string, headers: string[], exampleRows: (string | number)[][]) {
   await exportToExcel(filename, headers, exampleRows, 'نموذج')

@@ -11,6 +11,7 @@ export interface SiteSettingsData {
   logo?: string
   tax_number?: string
   vat_rate?: number
+  vat_required?: boolean
   currency?: string
   invoice_prefix_sales?: string
   invoice_prefix_purchases?: string

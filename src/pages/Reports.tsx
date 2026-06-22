@@ -5,13 +5,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FileDown, Search, Target, Users, Package, TrendingUp } from 'lucide-react'
+import { FileDown, Search, Target, Users, Package, TrendingUp, ShoppingCart } from 'lucide-react'
 import { usePermission } from '@/hooks/usePermissions'
 import { useCostAllocation } from '@/hooks/useCostAllocation'
 import { useSalesByRange } from '@/hooks/useSales'
 import { usePurchasesByRange, useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useWasteByRange } from '@/hooks/useWaste'
 import { useCustomers } from '@/hooks/useCustomers'
+import { useSuppliers } from '@/hooks/useSuppliers'
 import { formatNumber, todayISO, monthName } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -43,6 +44,25 @@ async function exportToExcel(filename: string, headers: string[], rows: (string 
   a.click()
 }
 
+// ── PDF export ───────────────────────────────────────────────────────────────
+async function exportToPDF(title: string, filename: string, headers: string[], rows: (string | number)[][]) {
+  const { default: jsPDF } = await import('jspdf')
+  const { default: autoTable } = await import('jspdf-autotable')
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  doc.setFont('helvetica')
+  doc.setFontSize(12)
+  doc.text(title, doc.internal.pageSize.getWidth() / 2, 12, { align: 'center' })
+  autoTable(doc, {
+    head: [headers],
+    body: rows.map(r => r.map(String)),
+    startY: 18,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [22, 163, 74], textColor: 255 },
+    alternateRowStyles: { fillColor: [245, 247, 250] },
+  })
+  doc.save(filename)
+}
+
 // ── Applied filter type ─────────────────────────────────────────────────────
 interface AppliedFilter {
   mode: 'month' | 'range'
@@ -53,7 +73,7 @@ interface AppliedFilter {
   label: string
 }
 
-type ReportSection = 'products' | 'customers' | 'breakeven' | 'cm'
+type ReportSection = 'products' | 'customers' | 'breakeven' | 'cm' | 'purchases'
 
 export default function Reports() {
   const canExport = usePermission('reports', 'export')
@@ -106,6 +126,7 @@ export default function Reports() {
   const { data: latestCosts } = useLatestPurchaseCosts(qTo === DISABLED ? todayISO() : qTo)
   const { data: allocations, isLoading: allocLoading } = useCostAllocation(allocYear, allocMonth)
   const { data: customers } = useCustomers()
+  const { data: suppliers } = useSuppliers()
 
   const isLoading = salesLoading
 
@@ -188,6 +209,40 @@ export default function Reports() {
     })).sort((a, b) => b.cm - a.cm),
     [allocations]
   )
+
+  // ── Purchase report rows by supplier ─────────────────────────────────────
+  const purchaseBySupplier = useMemo(() => {
+    const map = new Map<string, { name: string; totalKg: number; totalCost: number; invoices: Set<string> }>()
+    purchases?.forEach(p => {
+      const sid = p.supplier_id ?? 'unknown'
+      const name = p.supplier?.name_ar ?? (suppliers?.find(s => s.id === sid)?.name_ar ?? 'غير محدد')
+      const ex = map.get(sid) ?? { name, totalKg: 0, totalCost: 0, invoices: new Set() }
+      const kg = p.total_weight ?? p.cartons_qty * p.weight_per_carton
+      const cost = p.total_cost ?? p.cartons_qty * p.price_per_carton
+      ex.totalKg += kg
+      ex.totalCost += cost
+      if (p.invoice_number) ex.invoices.add(p.invoice_number)
+      map.set(sid, ex)
+    })
+    return Array.from(map.values())
+      .map(r => ({ ...r, invoiceCount: r.invoices.size, avgCostPerKg: r.totalKg > 0 ? r.totalCost / r.totalKg : 0 }))
+      .sort((a, b) => b.totalCost - a.totalCost)
+  }, [purchases, suppliers])
+
+  const purchaseByProduct = useMemo(() => {
+    const map = new Map<string, { name: string; totalKg: number; totalCost: number; wasteKg: number; cartons: number }>()
+    purchases?.forEach(p => {
+      const pid = p.product_id
+      const name = p.product?.name_ar ?? pid
+      const ex = map.get(pid) ?? { name, totalKg: 0, totalCost: 0, wasteKg: 0, cartons: 0 }
+      const kg = p.total_weight ?? p.cartons_qty * p.weight_per_carton
+      const cost = p.total_cost ?? p.cartons_qty * p.price_per_carton
+      map.set(pid, { ...ex, totalKg: ex.totalKg + kg, totalCost: ex.totalCost + cost, wasteKg: ex.wasteKg + p.waste_kg, cartons: ex.cartons + p.cartons_qty })
+    })
+    return Array.from(map.values())
+      .map(r => ({ ...r, avgCostPerKg: r.totalKg > 0 ? r.totalCost / r.totalKg : 0, wasteRatePct: r.totalKg > 0 ? (r.wasteKg / r.totalKg) * 100 : 0 }))
+      .sort((a, b) => b.totalCost - a.totalCost)
+  }, [purchases])
 
   // ── Label for export filename ──────────────────────────────────────────────
   const periodTag = applied?.mode === 'month' ? `${applied.year}-${applied.month}` : `${applied?.from}_${applied?.to}`
@@ -302,6 +357,10 @@ export default function Reports() {
                     onClick={() => exportToExcel(`تقرير-${periodTag}.xlsx`, ['الصنف','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'], productRows.map(r=>[r.name,r.qtyKg,r.revenue,r.cost,r.profit,r.marginPct.toFixed(1)+'%']))}>
                     <FileDown className="w-3.5 h-3.5"/>تصدير Excel
                   </Button>
+                  <Button variant="outline" size="sm" className="w-full gap-2 justify-start h-8 text-xs"
+                    onClick={() => exportToPDF(`تقرير ربحية الأصناف — ${applied?.label}`, `تقرير-${periodTag}.pdf`, ['الصنف','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%'], productRows.map(r=>[r.name,r.qtyKg.toFixed(1),r.revenue.toFixed(2),r.cost.toFixed(2),r.profit.toFixed(2),r.marginPct.toFixed(1)+'%']))}>
+                    <FileDown className="w-3.5 h-3.5"/>تصدير PDF
+                  </Button>
                 </div>
               )}
               <div className="flex-1 p-2 space-y-0.5">
@@ -311,6 +370,7 @@ export default function Reports() {
                 { id: 'customers' as ReportSection, label: 'ربحية العملاء', icon: Users },
                 { id: 'breakeven' as ReportSection, label: 'نقطة التعادل', icon: Target },
                 { id: 'cm' as ReportSection, label: 'هامش المساهمة%', icon: TrendingUp },
+                { id: 'purchases' as ReportSection, label: 'تقرير المشتريات', icon: ShoppingCart },
               ]).map(s => (
                 <button key={s.id} onClick={() => setActiveRep(s.id)}
                   className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-right',
@@ -382,13 +442,22 @@ export default function Reports() {
                 <CardHeader>
                   <CardTitle className="text-base flex justify-between items-center">
                     <span>ربحية العملاء — {applied.label}</span>
-                    {canExport && <Button variant="outline" size="sm" className="gap-2"
-                      onClick={() => exportToExcel(`customers-${periodTag}.xlsx`,
-                        ['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','م.سعر البيع/كج','م.التكلفة/كج'],
-                        customerRows.map(r => [r.name, r.type, r.qty, r.revenue, r.cost, r.profit, r.marginPct.toFixed(1)+'%', r.avgSellPerKg.toFixed(2), r.avgCostPerKg.toFixed(2)])
-                      )}>
-                      <FileDown className="w-4 h-4" /> Excel
-                    </Button>}
+                    {canExport && <div className="flex gap-2">
+                      <Button variant="outline" size="sm" className="gap-2"
+                        onClick={() => exportToExcel(`customers-${periodTag}.xlsx`,
+                          ['العميل','النوع','الكمية(كج)','الإيراد','التكلفة','الربح','هامش%','م.سعر البيع/كج','م.التكلفة/كج'],
+                          customerRows.map(r => [r.name, r.type, r.qty, r.revenue, r.cost, r.profit, r.marginPct.toFixed(1)+'%', r.avgSellPerKg.toFixed(2), r.avgCostPerKg.toFixed(2)])
+                        )}>
+                        <FileDown className="w-4 h-4" /> Excel
+                      </Button>
+                      <Button variant="outline" size="sm" className="gap-2"
+                        onClick={() => exportToPDF(`ربحية العملاء — ${applied.label}`, `customers-${periodTag}.pdf`,
+                          ['العميل','النوع','الإيراد','الربح','هامش%'],
+                          customerRows.map(r => [r.name, r.type, r.revenue.toFixed(2), r.profit.toFixed(2), r.marginPct.toFixed(1)+'%'])
+                        )}>
+                        <FileDown className="w-4 h-4" /> PDF
+                      </Button>
+                    </div>}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -527,6 +596,111 @@ export default function Reports() {
                               <td className={cn('px-3 py-2 font-bold', r.cmPct >= 20 ? 'text-success' : r.cmPct >= 10 ? 'text-warning' : 'text-danger')}>{r.cmPct.toFixed(1)}%</td>
                               <td className="px-3 py-2">{formatNumber(r.revenue)}</td>
                               <td className="px-3 py-2">{formatNumber(r.directCost)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>}
+            {activeRep === 'purchases' && <>
+              {/* ── ملخص المشتريات حسب مورد ─── */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex justify-between items-center">
+                    <span>المشتريات حسب المورد — {applied.label}</span>
+                    {canExport && purchaseBySupplier.length > 0 && (
+                      <Button variant="outline" size="sm" className="gap-2"
+                        onClick={() => exportToExcel(`purchases-supplier-${periodTag}.xlsx`,
+                          ['المورد','إجمالي الكمية(كج)','إجمالي التكلفة','متوسط سعر/كج','عدد الفواتير'],
+                          purchaseBySupplier.map(r => [r.name, r.totalKg, r.totalCost, r.avgCostPerKg.toFixed(2), r.invoiceCount])
+                        )}>
+                        <FileDown className="w-4 h-4" /> Excel
+                      </Button>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? <Skeleton className="h-32" /> : purchaseBySupplier.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8 text-sm">لا توجد مشتريات في هذه الفترة</p>
+                  ) : (
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-border bg-muted/80">
+                            {['المورد','الكمية(كج)','التكلفة الإجمالية','متوسط سعر/كج','عدد الفواتير','النسبة%'].map(h => (
+                              <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const totalCost = purchaseBySupplier.reduce((s, r) => s + r.totalCost, 0)
+                            return purchaseBySupplier.map((r, i) => (
+                              <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                                <td className="px-3 py-2 font-medium">{r.name}</td>
+                                <td className="px-3 py-2">{formatNumber(r.totalKg)}</td>
+                                <td className="px-3 py-2 font-semibold text-primary">{formatNumber(r.totalCost)}</td>
+                                <td className="px-3 py-2 text-muted-foreground">{formatNumber(r.avgCostPerKg)}</td>
+                                <td className="px-3 py-2">{r.invoiceCount}</td>
+                                <td className="px-3 py-2">{totalCost > 0 ? ((r.totalCost / totalCost) * 100).toFixed(1) : 0}%</td>
+                              </tr>
+                            ))
+                          })()}
+                          <tr className="bg-muted/30 font-semibold border-t-2 border-border">
+                            <td className="px-3 py-2">الإجمالي</td>
+                            <td className="px-3 py-2">{formatNumber(purchaseBySupplier.reduce((s, r) => s + r.totalKg, 0))}</td>
+                            <td className="px-3 py-2 text-primary">{formatNumber(purchaseBySupplier.reduce((s, r) => s + r.totalCost, 0))}</td>
+                            <td colSpan={3}></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── ملخص المشتريات حسب صنف ─── */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex justify-between items-center">
+                    <span>المشتريات حسب الصنف — {applied.label}</span>
+                    {canExport && purchaseByProduct.length > 0 && (
+                      <Button variant="outline" size="sm" className="gap-2"
+                        onClick={() => exportToExcel(`purchases-product-${periodTag}.xlsx`,
+                          ['الصنف','الكمية(كج)','الكراتين','الهدر(كج)','نسبة الهدر%','التكلفة','متوسط/كج'],
+                          purchaseByProduct.map(r => [r.name, r.totalKg, r.cartons, r.wasteKg, r.wasteRatePct.toFixed(1)+'%', r.totalCost, r.avgCostPerKg.toFixed(2)])
+                        )}>
+                        <FileDown className="w-4 h-4" /> Excel
+                      </Button>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? <Skeleton className="h-32" /> : purchaseByProduct.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8 text-sm">لا توجد مشتريات في هذه الفترة</p>
+                  ) : (
+                    <div className="overflow-auto max-h-[400px] rounded-lg border border-border">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-border bg-muted/80">
+                            {['الصنف','الكمية(كج)','الكراتين','الهدر(كج)','نسبة الهدر%','التكلفة','متوسط/كج'].map(h => (
+                              <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {purchaseByProduct.map((r, i) => (
+                            <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                              <td className="px-3 py-2 font-medium">{r.name}</td>
+                              <td className="px-3 py-2">{formatNumber(r.totalKg)}</td>
+                              <td className="px-3 py-2">{r.cartons}</td>
+                              <td className={cn('px-3 py-2', r.wasteKg > 0 ? 'text-warning' : 'text-muted-foreground')}>{formatNumber(r.wasteKg)}</td>
+                              <td className={cn('px-3 py-2', r.wasteRatePct > 10 ? 'text-danger font-semibold' : r.wasteRatePct > 5 ? 'text-warning' : 'text-muted-foreground')}>{r.wasteRatePct.toFixed(1)}%</td>
+                              <td className="px-3 py-2 font-medium">{formatNumber(r.totalCost)}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{formatNumber(r.avgCostPerKg)}</td>
                             </tr>
                           ))}
                         </tbody>

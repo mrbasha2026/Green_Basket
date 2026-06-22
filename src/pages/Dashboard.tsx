@@ -296,7 +296,7 @@ export default function Dashboard() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">ملخص يومي</CardTitle>
-              <Link to="/analytics" className="text-xs text-primary hover:underline font-medium">عرض التحليلات →</Link>
+              <Link to="/analytics" className="text-xs text-primary hover:underline font-medium">عرض التحليلات ←</Link>
             </div>
           </CardHeader>
           <CardContent>

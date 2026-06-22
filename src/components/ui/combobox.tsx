@@ -128,8 +128,8 @@ export function Combobox({
                   opt.value === value && "bg-primary/10 text-primary font-medium"
                 )}
               >
-                {opt.value === value && <CheckIcon className="absolute left-2 size-3.5 text-primary" />}
-                <span className={cn("flex-1", opt.value === value && "pl-5")}>
+                {opt.value === value && <CheckIcon className="absolute right-2 size-3.5 text-primary" />}
+                <span className={cn("flex-1", opt.value === value && "pr-5")}>
                   {opt.label}
                   {opt.sub && <span className="text-xs text-muted-foreground mr-1">({opt.sub})</span>}
                 </span>

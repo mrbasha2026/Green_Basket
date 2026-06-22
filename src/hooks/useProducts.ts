@@ -5,9 +5,12 @@ import type { Product, ProductAlias } from '@/types'
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
 
+const TEN_MINUTES = 10 * 60 * 1000
+
 export function useProducts() {
   return useQuery<Product[]>({
     queryKey: ['products'],
+    staleTime: TEN_MINUTES,
     queryFn: async () => {
       if (USE_MOCK) return mockProducts
       const { data, error } = await supabase
@@ -24,6 +27,7 @@ export function useProducts() {
 export function useAllProducts() {
   return useQuery<Product[]>({
     queryKey: ['products', 'all'],
+    staleTime: TEN_MINUTES,
     queryFn: async () => {
       if (USE_MOCK) return mockProducts
       const { data, error } = await supabase

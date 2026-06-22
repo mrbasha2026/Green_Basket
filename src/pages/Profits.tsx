@@ -8,7 +8,7 @@ import { DataTable } from '@/components/tables/DataTable'
 import { BarChart } from '@/components/charts/BarChart'
 import { QuickDateFilter } from '@/components/ui/quick-date-filter'
 import { useSalesByRange } from '@/hooks/useSales'
-import { useWaste } from '@/hooks/useWaste'
+import { useWasteByRange } from '@/hooks/useWaste'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { formatNumber, todayISO } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -46,13 +46,8 @@ export default function Profits() {
   const [activeSection, setActiveSection] = useState<ProfitsSection>('chart')
 
   const { data: sales, isLoading } = useSalesByRange(fromDate, toDate)
-  const { data: allWaste } = useWaste()
+  const { data: wasteInRange = [] } = useWasteByRange(fromDate, toDate)
   const { data: latestCosts } = useLatestPurchaseCosts(toDate)
-
-  const wasteInRange = useMemo(() =>
-    allWaste?.filter(w => w.date >= fromDate && w.date <= toDate) ?? [],
-    [allWaste, fromDate, toDate]
-  )
 
   // WAC المرجح لكل صنف من المبيعات (أدق من آخر سعر شراء)
   const wacByProduct = useMemo(() => {

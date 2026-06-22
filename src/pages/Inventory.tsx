@@ -25,7 +25,7 @@ import { exportToExcel } from '@/lib/excel'
 import { formatNumber, formatDate, todayISO, getChartStyle } from '@/lib/utils'
 import type { Product } from '@/types'
 import { cn } from '@/lib/utils'
-import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, FileDown, Trash2, Pencil, Package, BarChart2, TrendingDown, Layers, Search, ClipboardList, Plus, RefreshCw, RotateCcw, Clock } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { usePermission } from '@/hooks/usePermissions'
 
@@ -41,7 +41,7 @@ interface MovementRow {
   category: string; type: MovType; qty: number; cost_per_unit: number; total: number
   ref?: string
 }
-type Section = 'overview' | 'balance' | 'movements' | 'jard' | 'daily_jard' | 'products' | 'opening_balance'
+type Section = 'overview' | 'balance' | 'movements' | 'turnover' | 'aging' | 'jard' | 'daily_jard' | 'products' | 'opening_balance'
 
 function firstOfMonth() {
   const d = new Date(todayISO() + 'T12:00:00')
@@ -225,11 +225,17 @@ export default function Inventory() {
     return d
   }, [inventoryBalance, filterCategory, filterLowStock])
 
-  const lowStock = useMemo(() => inventoryBalance.filter(b => b.closing_stock_kg > 0 && b.closing_stock_kg < 10), [inventoryBalance])
+  const lowStock = useMemo(() => inventoryBalance.filter(b => {
+    const threshold = b.product?.low_stock_threshold ?? 10
+    return b.closing_stock_kg > 0 && b.closing_stock_kg < threshold
+  }), [inventoryBalance])
   const totalStockValue = useMemo(() => inventoryBalance.reduce((s, b) => s + b.stock_value, 0), [inventoryBalance])
 
   // Overview stats
-  const ovLowStock = useMemo(() => ovBalance.filter(b => b.closing_stock_kg > 0 && b.closing_stock_kg < 10), [ovBalance])
+  const ovLowStock = useMemo(() => ovBalance.filter(b => {
+    const threshold = b.product?.low_stock_threshold ?? 10
+    return b.closing_stock_kg > 0 && b.closing_stock_kg < threshold
+  }), [ovBalance])
   const ovTotalValue = useMemo(() => ovBalance.reduce((s, b) => s + b.stock_value, 0), [ovBalance])
   const categories = useMemo(() => [...new Set(products?.map(p => p.category) ?? [])], [products])
 
@@ -331,6 +337,8 @@ export default function Inventory() {
     { id: 'overview', label: 'لوحة المخزون', icon: BarChart2, group: 'التقارير' },
     { id: 'balance', label: 'رصيد المخزون', icon: Package, badge: inventoryBalance.length || undefined, group: 'التقارير' },
     { id: 'movements', label: 'حركات المخزون', icon: TrendingDown, badge: movements.length || undefined, group: 'التقارير' },
+    { id: 'turnover', label: 'دوران المخزون', icon: RotateCcw, group: 'التقارير' },
+    { id: 'aging', label: 'تقادم المخزون', icon: Clock, group: 'التقارير' },
     { id: 'daily_jard', label: 'الجرد اليومي', icon: ClipboardList, group: 'العمليات', highlight: true },
     { id: 'jard', label: 'جرد المخزون', icon: ClipboardList, group: 'العمليات' },
     { id: 'products', label: 'إدارة الأصناف', icon: Layers, group: 'العمليات' },
@@ -636,6 +644,122 @@ export default function Inventory() {
             </div>
           )}
 
+          {/* ── Turnover ────────────────────────────────────────────── */}
+          {activeSection === 'turnover' && (
+            <div className="p-5 space-y-5">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <h2 className="text-base font-semibold">دوران المخزون</h2>
+                <QuickDateFilter from={ovFrom} to={ovTo} onFromChange={v => { setOvFrom(v); setOvApplied(false) }} onToChange={v => { setOvTo(v); setOvApplied(false) }} />
+                <Button size="sm" className="gap-1.5" onClick={() => setOvApplied(true)}><Search className="w-3.5 h-3.5" />عرض</Button>
+              </div>
+              {ovBalance.length === 0 ? (
+                <p className="text-center py-12 text-muted-foreground text-sm">لا توجد بيانات — حدد الفترة واضغط <strong>عرض</strong></p>
+              ) : (() => {
+                const days = Math.max(1, Math.round((new Date(ovTo).getTime() - new Date(ovFrom).getTime()) / 86400000) + 1)
+                const rows = ovBalance.map(b => {
+                  const avgStock = (b.opening_stock_kg + b.closing_stock_kg) / 2
+                  const cogs = b.sales_kg * b.weighted_avg_cost
+                  const turnover = avgStock > 0 ? cogs / (avgStock * b.weighted_avg_cost) : 0
+                  const daysInStock = turnover > 0 ? (days / turnover) : null
+                  return { name: b.product?.name_ar ?? '—', category: b.product?.category ?? '', avgStock, cogs, turnover, daysInStock, closingKg: b.closing_stock_kg }
+                }).filter(r => r.avgStock > 0 || r.closingKg > 0).sort((a, b) => (b.turnover || 0) - (a.turnover || 0))
+                return (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center justify-between">
+                        <span>دوران المخزون — {formatDate(ovFrom)} إلى {formatDate(ovTo)}</span>
+                        <Button variant="outline" size="sm" className="gap-1 h-8 text-xs" onClick={() => exportToExcel(`turnover-${ovTo}.xlsx`, ['الصنف','الفئة','متوسط المخزون(كج)','تكلفة البضاعة المباعة','معدل الدوران','أيام في المخزون'], rows.map(r => [r.name, r.category, r.avgStock.toFixed(1), r.cogs.toFixed(2), r.turnover.toFixed(2), r.daysInStock?.toFixed(0) ?? 'N/A']))}><FileDown className="w-3.5 h-3.5" />Excel</Button>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-auto max-h-[500px] rounded-lg border border-border">
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 z-10"><tr className="border-b border-border bg-muted/80">
+                            {['الصنف','الفئة','م.المخزون(كج)','معدل الدوران','أيام في المخزون','الحالة'].map(h => <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>)}
+                          </tr></thead>
+                          <tbody>
+                            {rows.map((r, i) => (
+                              <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                                <td className="px-3 py-2 font-medium">{r.name}</td>
+                                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{r.category}</Badge></td>
+                                <td className="px-3 py-2">{formatNumber(r.avgStock)}</td>
+                                <td className={cn('px-3 py-2 font-semibold', r.turnover >= 4 ? 'text-success' : r.turnover >= 2 ? 'text-warning' : 'text-danger')}>{r.turnover.toFixed(2)}x</td>
+                                <td className="px-3 py-2">{r.daysInStock ? `${r.daysInStock.toFixed(0)} يوم` : <span className="text-muted-foreground">—</span>}</td>
+                                <td className="px-3 py-2 text-xs">{r.turnover >= 4 ? '🟢 مرتفع' : r.turnover >= 2 ? '🟡 متوسط' : r.turnover > 0 ? '🔴 منخفض' : '⚪ لا حركة'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-3">معدل الدوران = تكلفة البضاعة المباعة ÷ متوسط قيمة المخزون — كلما ارتفع المعدل كلما كان دوران المخزون أسرع</p>
+                    </CardContent>
+                  </Card>
+                )
+              })()}
+            </div>
+          )}
+
+          {/* ── Aging ───────────────────────────────────────────────── */}
+          {activeSection === 'aging' && (
+            <div className="p-5 space-y-5">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <h2 className="text-base font-semibold">تقادم المخزون</h2>
+                <QuickDateFilter from={ovFrom} to={ovTo} onFromChange={v => { setOvFrom(v); setOvApplied(false) }} onToChange={v => { setOvTo(v); setOvApplied(false) }} />
+                <Button size="sm" className="gap-1.5" onClick={() => setOvApplied(true)}><Search className="w-3.5 h-3.5" />عرض</Button>
+              </div>
+              {ovBalance.length === 0 ? (
+                <p className="text-center py-12 text-muted-foreground text-sm">لا توجد بيانات — حدد الفترة واضغط <strong>عرض</strong></p>
+              ) : (() => {
+                const today = todayISO()
+                const agingRows = ovBalance
+                  .filter(b => b.closing_stock_kg > 0)
+                  .map(b => {
+                    const lastSaleDate = ovSales?.filter(s => s.product_id === b.product_id).sort((a, z) => z.date.localeCompare(a.date))[0]?.date ?? null
+                    const lastPurchDate = ovPurch?.filter(p => p.product_id === b.product_id).sort((a, z) => z.date.localeCompare(a.date))[0]?.date ?? null
+                    const lastActivityDate = [lastSaleDate, lastPurchDate].filter(Boolean).sort().reverse()[0] ?? null
+                    const daysSinceActivity = lastActivityDate
+                      ? Math.round((new Date(today).getTime() - new Date(lastActivityDate).getTime()) / 86400000)
+                      : null
+                    return { name: b.product?.name_ar ?? '—', category: b.product?.category ?? '', closingKg: b.closing_stock_kg, stockValue: b.stock_value, lastSale: lastSaleDate, lastPurch: lastPurchDate, daysSince: daysSinceActivity }
+                  })
+                  .sort((a, b) => (b.daysSince ?? 999) - (a.daysSince ?? 999))
+                return (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center justify-between">
+                        <span>تقادم المخزون — بتاريخ {formatDate(ovTo)}</span>
+                        <Button variant="outline" size="sm" className="gap-1 h-8 text-xs" onClick={() => exportToExcel(`aging-${ovTo}.xlsx`, ['الصنف','الفئة','الرصيد(كج)','القيمة(ر.س)','آخر بيع','آخر شراء','الأيام منذ آخر نشاط'], agingRows.map(r => [r.name, r.category, r.closingKg, r.stockValue.toFixed(2), r.lastSale ?? '—', r.lastPurch ?? '—', r.daysSince ?? '—']))}><FileDown className="w-3.5 h-3.5" />Excel</Button>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-auto max-h-[500px] rounded-lg border border-border">
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 z-10"><tr className="border-b border-border bg-muted/80">
+                            {['الصنف','الفئة','الرصيد(كج)','القيمة(ر.س)','آخر بيع','الأيام منذ آخر نشاط','الحالة'].map(h => <th key={h} className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{h}</th>)}
+                          </tr></thead>
+                          <tbody>
+                            {agingRows.map((r, i) => (
+                              <tr key={i} className={cn('border-b border-border/50 hover:bg-muted/20', (r.daysSince ?? 0) > 30 ? 'bg-danger/5' : (r.daysSince ?? 0) > 14 ? 'bg-warning/5' : '')}>
+                                <td className="px-3 py-2 font-medium">{r.name}</td>
+                                <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{r.category}</Badge></td>
+                                <td className="px-3 py-2 font-semibold">{formatNumber(r.closingKg)}</td>
+                                <td className="px-3 py-2 text-primary">{formatNumber(r.stockValue)}</td>
+                                <td className="px-3 py-2 text-xs text-muted-foreground">{r.lastSale ? formatDate(r.lastSale) : <span className="text-danger">لا يوجد</span>}</td>
+                                <td className={cn('px-3 py-2 font-semibold', (r.daysSince ?? 0) > 30 ? 'text-danger' : (r.daysSince ?? 0) > 14 ? 'text-warning' : 'text-success')}>{r.daysSince !== null ? `${r.daysSince} يوم` : '—'}</td>
+                                <td className="px-3 py-2 text-xs">{(r.daysSince ?? 0) > 30 ? '🔴 قديم' : (r.daysSince ?? 0) > 14 ? '🟡 متأخر' : '🟢 نشط'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-3">يُظهر الأصناف التي لديها رصيد حالي مرتبة حسب آخر نشاط (بيع أو شراء) — الأحمر يعني صنف لم يتحرك منذ أكثر من 30 يوماً</p>
+                    </CardContent>
+                  </Card>
+                )
+              })()}
+            </div>
+          )}
+
           {/* ── Daily Jard ──────────────────────────────────────────── */}
           {activeSection === 'daily_jard' && (
             <div className="p-5">
@@ -726,6 +850,13 @@ function ProductsSection() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="خضار">خضار</SelectItem><SelectItem value="فاكهة">فاكهة</SelectItem><SelectItem value="أعشاب">أعشاب</SelectItem></SelectContent>
               </Select></div>
+            <div className="space-y-1">
+              <Label>حد التنبيه (كج)</Label>
+              <Input type="number" min="0" step="0.5" dir="ltr" placeholder="10"
+                value={editProduct?.low_stock_threshold ?? ''}
+                onChange={e => setEditProduct(p => ({ ...p, low_stock_threshold: e.target.value ? parseFloat(e.target.value) : undefined }))} />
+              <p className="text-xs text-muted-foreground">تنبيه مخزون منخفض عند أقل من هذه الكمية (الافتراضي: 10 كج)</p>
+            </div>
             <div className="flex gap-2 pt-1">
               <Button onClick={handleSave} disabled={isPending} className="flex-1">{isPending ? 'جاري الحفظ...' : 'حفظ'}</Button>
               <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
@@ -766,7 +897,7 @@ function ProductsSection() {
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex gap-1">
-                    {canEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button>}
+                    {canEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditProduct({ id: p.id, name_ar: p.name_ar, name_en: p.name_en ?? '', category: p.category, low_stock_threshold: p.low_stock_threshold }); setOpen(true) }}><Pencil className="w-3 h-3" /></Button>}
                     {canDelete && p.is_active && <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:bg-danger/10" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3 h-3" /></Button>}
                   </div>
                 </td>

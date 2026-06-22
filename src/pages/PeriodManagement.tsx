@@ -13,6 +13,7 @@ import { formatDate, todayISO } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { Calculator, Lock, LockOpen, History, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { usePermission } from '@/hooks/usePermissions'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 
 const currentYear = new Date(todayISO() + 'T12:00:00').getFullYear()
 
@@ -30,6 +31,8 @@ export default function PeriodManagement() {
   const { mutateAsync: openPeriod,   isPending: isOpen  } = useOpenPeriod()
 
   const isPending = isCalc || isClose || isOpen
+
+  const [openConfirm, setOpenConfirm] = useState<number | null>(null)
 
   // الشهور الـ 12 للسنة المختارة مدمجة مع البيانات الموجودة
   const monthRows = MONTH_NAMES.map((name, i) => {
@@ -61,6 +64,11 @@ export default function PeriodManagement() {
   }
 
   async function handleOpen(month: number) {
+    setOpenConfirm(month)
+  }
+
+  async function confirmOpen(month: number) {
+    setOpenConfirm(null)
     try {
       await openPeriod({ year: selectedYear, month, periods })
       toast.success(`تم فتح ${MONTH_NAMES[month - 1]} ${selectedYear}`)
@@ -248,6 +256,34 @@ export default function PeriodManagement() {
           )}
         </CardContent>
       </Card>
+
+      {/* تأكيد فتح الفترة */}
+      <AlertDialog open={openConfirm !== null} onOpenChange={open => { if (!open) setOpenConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-warning" />
+              تأكيد فتح الفترة
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-right space-y-1">
+              <span className="block">
+                سيتم فتح <strong>{openConfirm !== null ? MONTH_NAMES[openConfirm - 1] : ''} {selectedYear}</strong> وحذف رصيد إغلاقها المحتسب.
+              </span>
+              <span className="block text-warning/80">
+                ستحتاج إلى إعادة احتساب WAC لهذا الشهر من جديد.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row-reverse gap-2">
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-warning text-white hover:bg-warning/90"
+              onClick={() => openConfirm !== null && confirmOpen(openConfirm)}>
+              فتح الفترة
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </div>
   )

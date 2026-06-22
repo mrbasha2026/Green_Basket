@@ -194,7 +194,7 @@ export function DataTable<T>({
 
       {/* عداد بسيط بدون pagination عند قِلّة البيانات */}
       {!needsPagination && total > 0 && (
-        <p className="text-xs text-muted-foreground text-left">{total} سجل</p>
+        <p className="text-xs text-muted-foreground text-right">{total} سجل</p>
       )}
     </div>
   )

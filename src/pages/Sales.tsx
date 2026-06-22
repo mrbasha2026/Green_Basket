@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Sheet } from '@/components/ui/sheet'
 import { Combobox } from '@/components/ui/combobox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -74,28 +75,55 @@ function InvoiceDetailSheet({ group, open, onClose, products }: {
         </div>
         <div id="sale-detail-print">
           <div style={{background:'#16a34a',color:'#fff',padding:'10px 14px',marginBottom:'12px',borderRadius:'6px'}}>
-            <p style={{fontWeight:'bold',fontSize:'15px',margin:0}}>{site.name||'Greenbasket'} — فاتورة مبيعات</p>
-            <p style={{fontSize:'11px',margin:'3px 0 0'}}>رقم: {group.invoice_number} | {formatDate(group.date)} | العميل: {group.customer_name}</p>
+            <div style={{display:'flex',justifyContent:'space-between'}}>
+              <div>
+                <p style={{fontWeight:'bold',fontSize:'15px',margin:0}}>{site.name||'Greenbasket'}</p>
+                {site.address&&<p style={{fontSize:'10px',margin:'2px 0 0',opacity:0.85}}>{site.address}</p>}
+                {site.phone&&<p style={{fontSize:'10px',margin:'2px 0 0',opacity:0.85}}>هاتف: {site.phone}</p>}
+                {site.tax_number&&<p style={{fontSize:'10px',margin:'2px 0 0',opacity:0.85}}>الرقم الضريبي: {site.tax_number}</p>}
+              </div>
+              <div style={{textAlign:'left'}}>
+                <p style={{fontWeight:'bold',fontSize:'14px',margin:0}}>فاتورة مبيعات</p>
+                <p style={{fontSize:'11px',margin:'2px 0 0',opacity:0.85}}>رقم: {group.invoice_number} | {formatDate(group.date)}</p>
+                <p style={{fontSize:'11px',margin:'2px 0 0',opacity:0.85}}>العميل: {group.customer_name}</p>
+              </div>
+            </div>
           </div>
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead><tr className="bg-muted/50 border-b border-border">{['#','الصنف','الكمية(كج)','م.و.م','سعر البيع','الإجمالي','الربح'].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">{h}</th>)}</tr></thead>
-              <tbody>
-                {group.items.map((s,i)=>{const profit=s.total_amount-s.total_purchase;return(
-                  <tr key={s.id} className={cn('border-b border-border/50',i%2===1&&'bg-muted/20')}>
-                    <td className="px-3 py-2 text-muted-foreground text-xs">{i+1}</td>
-                    <td className="px-3 py-2 font-medium">{products.find(p=>p.id===s.product_id)?.name_ar??'—'}</td>
-                    <td className="px-3 py-2">{formatNumber(s.qty_kg)}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{formatNumber(s.purchase_price_per_kg)}</td>
-                    <td className="px-3 py-2">{formatNumber(s.price_per_kg)}</td>
-                    <td className="px-3 py-2 font-semibold">{formatNumber(s.total_amount)}</td>
-                    <td className={cn('px-3 py-2 font-medium text-xs',profit>=0?'text-success':'text-danger')}>{formatNumber(profit)}</td>
-                  </tr>
-                )})}
-              </tbody>
-              <tfoot><tr className="bg-primary/5 font-bold border-t-2 border-primary/20"><td className="px-3 py-2.5" colSpan={5}>الإجمالي الكلي</td><td className="px-3 py-2.5 text-primary text-base">{formatNumber(group.total_amount)} ر.س</td><td className={cn('px-3 py-2.5 text-sm',group.total_profit>=0?'text-success':'text-danger')}>{formatNumber(group.total_profit)}</td></tr></tfoot>
-            </table>
-          </div>
+          {(()=>{
+            const detailVatApplied=g.items.some(i=>i.vat_applied)
+            const detailVatTotal=g.items.reduce((s,i)=>s+(i.vat_amount??0),0)
+            return (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-muted/50 border-b border-border">{['#','الصنف','الكمية(كج)','م.و.م','سعر البيع','الإجمالي','الربح'].map(h=><th key={h} className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">{h}</th>)}</tr></thead>
+                  <tbody>
+                    {group.items.map((s,i)=>{const profit=s.total_amount-s.total_purchase;return(
+                      <tr key={s.id} className={cn('border-b border-border/50',i%2===1&&'bg-muted/20')}>
+                        <td className="px-3 py-2 text-muted-foreground text-xs">{i+1}</td>
+                        <td className="px-3 py-2 font-medium">{products.find(p=>p.id===s.product_id)?.name_ar??'—'}</td>
+                        <td className="px-3 py-2">{formatNumber(s.qty_kg)}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{formatNumber(s.purchase_price_per_kg)}</td>
+                        <td className="px-3 py-2">{formatNumber(s.price_per_kg)}</td>
+                        <td className="px-3 py-2 font-semibold">{formatNumber(s.total_amount)}</td>
+                        <td className={cn('px-3 py-2 font-medium text-xs',profit>=0?'text-success':'text-danger')}>{formatNumber(profit)}</td>
+                      </tr>
+                    )})}
+                  </tbody>
+                  <tfoot>
+                    {detailVatApplied?(
+                      <>
+                        <tr className="border-t border-border/50"><td className="px-3 py-2" colSpan={5}>المجموع قبل الضريبة</td><td className="px-3 py-2 font-semibold">{formatNumber(group.total_amount)} ر.س</td><td/></tr>
+                        <tr className="bg-warning/5"><td className="px-3 py-2 text-warning" colSpan={5}>ضريبة القيمة المضافة</td><td className="px-3 py-2 font-semibold text-warning">{formatNumber(detailVatTotal)} ر.س</td><td/></tr>
+                        <tr className="bg-primary/5 font-bold border-t-2 border-primary/20"><td className="px-3 py-2.5" colSpan={5}>الإجمالي شامل الضريبة</td><td className="px-3 py-2.5 text-primary text-base">{formatNumber(group.total_amount+detailVatTotal)} ر.س</td><td className={cn('px-3 py-2.5 text-sm',group.total_profit>=0?'text-success':'text-danger')}>{formatNumber(group.total_profit)}</td></tr>
+                      </>
+                    ):(
+                      <tr className="bg-primary/5 font-bold border-t-2 border-primary/20"><td className="px-3 py-2.5" colSpan={5}>الإجمالي الكلي</td><td className="px-3 py-2.5 text-primary text-base">{formatNumber(group.total_amount)} ر.س</td><td className={cn('px-3 py-2.5 text-sm',group.total_profit>=0?'text-success':'text-danger')}>{formatNumber(group.total_profit)}</td></tr>
+                    )}
+                  </tfoot>
+                </table>
+              </div>
+            )
+          })()}
         </div>
       </div>
     </Sheet>
@@ -113,11 +141,13 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
   const [invoiceNumber,setInvoiceNumber]=useState(''); const [date,setDate]=useState(todayISO())
   const [customerId,setCustomerId]=useState(''); const [rows,setRows]=useState<SaleFormRow[]>([emptyRow()])
   const [transactionType,setTransactionType]=useState<'بيع'|'مرتجع_مبيعات'>('بيع')
+  const [submitted,setSubmitted]=useState(false)
 
   const {data:inventory}=useInventoryDaily(date); const {data:latestCosts}=useLatestPurchaseCosts(date)
   const {data:defaultPrices}=useCustomerPrices(customerId||undefined)
 
   useEffect(()=>{
+    setSubmitted(false)
     if(!open) return
     if(isEdit&&editGroup){
       setDate(editGroup.date);setCustomerId(editGroup.customer_id);setTransactionType((editGroup.transaction_type as 'بيع'|'مرتجع_مبيعات')??'بيع')
@@ -151,22 +181,27 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
   }
 
   const grandTotal=rows.reduce((s,r)=>s+r.qty_kg*r.price_per_kg,0)
-  const [applyVat,setApplyVat]=useState(false)
   const site=(()=>{try{return JSON.parse(localStorage.getItem('gb_site_settings')??'{}')}catch{return{}}})()
+  const vatRequired=!!site.vat_required
+  const [applyVat,setApplyVat]=useState(false)
   const vatRate=Number(site.vat_rate??15)
-  const vatAmount=applyVat?grandTotal*(vatRate/100):0
+  const effectiveApplyVat=vatRequired||applyVat
+  const vatAmount=effectiveApplyVat?grandTotal*(vatRate/100):0
   const totalWithVat=grandTotal+vatAmount
 
   async function handleSubmit(){
+    setSubmitted(true)
     const valid=rows.filter(r=>r.product_id&&r.qty_kg>0)
     if(!customerId){toast.error('اختر عميلاً');return}; if(valid.length===0){toast.error('أضف صنفاً على الأقل');return}
     try{
       let invNum=invoiceNumber
       if(!isEdit) invNum=await getOrCreateDailySaleInvoice(date,customerId,'SIM')
       if(isEdit&&editGroup?.invoice_number) await deleteByInvoice(editGroup.invoice_number)
-      await upsert(valid.map(r=>({product_id:r.product_id,customer_id:customerId,date,qty_kg:r.qty_kg,price_per_kg:r.price_per_kg,purchase_price_per_kg:r.wac??getWAC(r.product_id),source:'web' as const,invoice_number:invNum,transaction_type:transactionType})))
+      const totalForVat=valid.reduce((s,r)=>s+r.qty_kg*r.price_per_kg,0)
+      const invoiceVat=effectiveApplyVat?totalForVat*(vatRate/100):0
+      await upsert(valid.map(r=>{const rowTotal=r.qty_kg*r.price_per_kg;const rowVat=effectiveApplyVat&&totalForVat>0?(rowTotal/totalForVat)*invoiceVat:0;return{product_id:r.product_id,customer_id:customerId,date,qty_kg:r.qty_kg,price_per_kg:r.price_per_kg,purchase_price_per_kg:r.wac??getWAC(r.product_id),source:'web' as const,invoice_number:invNum,transaction_type:transactionType,vat_applied:effectiveApplyVat,vat_amount:rowVat}}))
       toast.success(isEdit?`تم تعديل ${invNum}`:`تم حفظ ${invNum}`); onClose()
-    }catch{toast.error('حدث خطأ')}
+    }catch(err){toast.error(err instanceof Error&&err.message?err.message:'حدث خطأ أثناء الحفظ')}
   }
 
   function handlePrint(){
@@ -180,7 +215,7 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
   const productOptions=(products??[]).map(p=>({value:p.id,label:p.name_ar,sub:p.category}))
 
   return (
-    <Sheet open={open} onClose={onClose} width="680px"
+    <Sheet open={open} onClose={onClose} width="min(680px, 100vw)"
       title={`${isEdit?'تعديل':'فاتورة'} مبيعات — ${invoiceNumber}`}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -188,11 +223,12 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
             <div className="flex items-center gap-3">
               <span className="text-muted-foreground">الإجمالي قبل ض.ق.م:</span>
               <span className="font-bold text-primary text-base">{formatNumber(grandTotal)} ر.س</span>
-              <button onClick={()=>setApplyVat(v=>!v)} className={cn('text-xs px-2.5 py-1 rounded-lg border transition-colors font-medium',applyVat?'bg-warning/15 text-warning border-warning/30':'bg-muted text-muted-foreground border-border hover:bg-muted/80')}>
-                {applyVat?`ض.ق.م ${vatRate}% مطبقة`:`إضافة ض.ق.م ${vatRate}%`}
-              </button>
+              {vatRequired
+                ? <span className="text-xs px-2.5 py-1 rounded-lg border bg-warning/15 text-warning border-warning/30 font-medium">ض.ق.م {vatRate}% إلزامية</span>
+                : <button onClick={()=>setApplyVat(v=>!v)} className={cn('text-xs px-2.5 py-1 rounded-lg border transition-colors font-medium',applyVat?'bg-warning/15 text-warning border-warning/30':'bg-muted text-muted-foreground border-border hover:bg-muted/80')}>{applyVat?`ض.ق.م ${vatRate}% مطبقة`:`إضافة ض.ق.م ${vatRate}%`}</button>
+              }
             </div>
-            {applyVat&&<div className="flex gap-4 text-xs"><span className="text-muted-foreground">الضريبة: <span className="text-warning font-medium">{formatNumber(vatAmount)} ر.س</span></span><span className="font-bold text-success">الإجمالي مع الضريبة: {formatNumber(totalWithVat)} ر.س</span></div>}
+            {effectiveApplyVat&&<div className="flex gap-4 text-xs"><span className="text-muted-foreground">الضريبة: <span className="text-warning font-medium">{formatNumber(vatAmount)} ر.س</span></span><span className="font-bold text-success">الإجمالي مع الضريبة: {formatNumber(totalWithVat)} ر.س</span></div>}
           </div>
           <div className="flex gap-2"><Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5"><Printer className="w-4 h-4"/>طباعة</Button><Button onClick={handleSubmit} disabled={isPending||isDeleting} className="gap-1.5">{(isPending||isDeleting)?'جاري الحفظ...':isEdit?'حفظ التعديلات':'حفظ الفاتورة'}</Button></div>
         </div>
@@ -201,7 +237,7 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
       <div className="space-y-5">
         <div className="flex gap-2">{(['بيع','مرتجع_مبيعات'] as const).map(t=>(<button key={t} type="button" onClick={()=>setTransactionType(t)} className={cn('flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors',transactionType===t?t==='بيع'?'border-primary bg-primary/10 text-primary':'border-warning bg-warning/10 text-warning':'border-border bg-background text-muted-foreground hover:bg-muted/60')}>{t==='بيع'?'بيع':'مرتجع مبيعات'}</button>))}</div>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5"><Label>العميل <span className="text-danger">*</span></Label><Combobox options={customerOptions} value={customerId} onValueChange={v=>{setCustomerId(v);setRows([emptyRow()])}} placeholder="اختر عميل..."/></div>
+          <div className="space-y-1.5"><Label>العميل <span className="text-danger">*</span></Label><Combobox options={customerOptions} value={customerId} onValueChange={v=>{setCustomerId(v);setRows([emptyRow()])}} placeholder="اختر عميل..."/>{submitted&&!customerId&&<p className="text-xs text-danger mt-0.5">مطلوب</p>}</div>
           <div className="space-y-1.5"><Label>التاريخ</Label><Input type="date" value={date} onChange={e=>setDate(e.target.value)} dir="ltr"/></div>
         </div>
         <div className="space-y-2">
@@ -243,8 +279,34 @@ function SaleDrawer({ open, onClose, editGroup }: { open: boolean; onClose: ()=>
         </div>
         <div className="rounded-lg bg-muted/30 border border-border p-4 text-sm"><div className="flex justify-between font-bold text-base"><span>الإجمالي الكلي</span><span className="text-primary">{formatNumber(grandTotal)} ر.س</span></div></div>
         <div id="drawer-sale-print" style={{display:'none'}}>
-          <div style={{background:'#16a34a',color:'#fff',padding:'10px 14px',marginBottom:'12px',borderRadius:'6px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><p style={{fontWeight:'bold',fontSize:'15px',margin:0}}>{site.name||'Greenbasket'}</p></div><div style={{textAlign:'left'}}><p style={{fontWeight:'bold',fontSize:'14px',margin:0}}>فاتورة مبيعات</p><p style={{fontSize:'11px',margin:'2px 0 0',opacity:0.85}}>رقم: {invoiceNumber} | {formatDate(date)}</p><p style={{fontSize:'11px',margin:'2px 0 0',opacity:0.85}}>العميل: {customers?.find(c=>c.id===customerId)?.name_ar}</p></div></div></div>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}><thead><tr style={{background:'#f1f5f9'}}>{['#','الصنف','الكمية(كج)','سعر البيع','الإجمالي'].map(h=><th key={h} style={{padding:'6px 8px',border:'1px solid #e2e8f0',textAlign:'right'}}>{h}</th>)}</tr></thead><tbody>{rows.filter(r=>r.product_id&&r.qty_kg>0).map((r,i)=>(<tr key={i}><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',color:'#64748b'}}>{i+1}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',fontWeight:600}}>{products?.find(p=>p.id===r.product_id)?.name_ar}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(r.qty_kg)}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(r.price_per_kg)}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',fontWeight:600}}>{formatNumber(r.qty_kg*r.price_per_kg)}</td></tr>))}</tbody><tfoot><tr style={{background:'#dcfce7',fontWeight:'bold'}}><td colSpan={3} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>الإجمالي</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>{formatNumber(grandTotal)} ر.س</td></tr></tfoot></table>
+          <div style={{background:'#16a34a',color:'#fff',padding:'10px 14px',marginBottom:'12px',borderRadius:'6px'}}>
+            <div style={{display:'flex',justifyContent:'space-between'}}>
+              <div>
+                <p style={{fontWeight:'bold',fontSize:'15px',margin:0}}>{site.name||'Greenbasket'}</p>
+                {site.address&&<p style={{fontSize:'10px',margin:'2px 0 0',opacity:0.85}}>{site.address}</p>}
+                {site.phone&&<p style={{fontSize:'10px',margin:'2px 0 0',opacity:0.85}}>هاتف: {site.phone}</p>}
+                {site.tax_number&&<p style={{fontSize:'10px',margin:'2px 0 0',opacity:0.85}}>الرقم الضريبي: {site.tax_number}</p>}
+              </div>
+              <div style={{textAlign:'left'}}>
+                <p style={{fontWeight:'bold',fontSize:'14px',margin:0}}>فاتورة مبيعات</p>
+                <p style={{fontSize:'11px',margin:'2px 0 0',opacity:0.85}}>رقم: {invoiceNumber} | {formatDate(date)}</p>
+                <p style={{fontSize:'11px',margin:'2px 0 0',opacity:0.85}}>العميل: {customers?.find(c=>c.id===customerId)?.name_ar}</p>
+              </div>
+            </div>
+          </div>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+            <thead><tr style={{background:'#f1f5f9'}}>{['#','الصنف','الكمية(كج)','سعر البيع','الإجمالي'].map(h=><th key={h} style={{padding:'6px 8px',border:'1px solid #e2e8f0',textAlign:'right'}}>{h}</th>)}</tr></thead>
+            <tbody>{rows.filter(r=>r.product_id&&r.qty_kg>0).map((r,i)=>(<tr key={i}><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',color:'#64748b'}}>{i+1}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',fontWeight:600}}>{products?.find(p=>p.id===r.product_id)?.name_ar}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(r.qty_kg)}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(r.price_per_kg)}</td><td style={{padding:'5px 8px',border:'1px solid #e2e8f0',fontWeight:600}}>{formatNumber(r.qty_kg*r.price_per_kg)}</td></tr>))}</tbody>
+            <tfoot>
+              {effectiveApplyVat?(<>
+                <tr><td colSpan={3} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>المجموع قبل الضريبة</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}>{formatNumber(grandTotal)} ر.س</td></tr>
+                <tr style={{background:'#fef3c7'}}><td colSpan={3} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#d97706',fontWeight:'bold'}}>ضريبة القيمة المضافة ({vatRate}%)</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#d97706',fontWeight:'bold'}}>{formatNumber(vatAmount)} ر.س</td></tr>
+                <tr style={{background:'#dcfce7',fontWeight:'bold'}}><td colSpan={3} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>الإجمالي شامل الضريبة</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>{formatNumber(totalWithVat)} ر.س</td></tr>
+              </>):(
+                <tr style={{background:'#dcfce7',fontWeight:'bold'}}><td colSpan={3} style={{padding:'6px 8px',border:'1px solid #e2e8f0'}}></td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>الإجمالي</td><td style={{padding:'6px 8px',border:'1px solid #e2e8f0',color:'#16a34a'}}>{formatNumber(grandTotal)} ر.س</td></tr>
+              )}
+            </tfoot>
+          </table>
         </div>
       </div>
     </Sheet>
@@ -259,6 +321,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
   const [filterProduct, setFilterProduct] = useState('')
   const [filterType, setFilterType] = useState<'all'|'sale'|'return'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirmDelete, setConfirmDelete] = useState<{ids:string[],label:string}|null>(null)
   const {data:customers}=useCustomers()
   const {mutateAsync:deleteSale,isPending:isDeleting}=useDeleteSale()
 
@@ -312,7 +375,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
     }},
     { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => (
       <Button variant="ghost" size="icon" className="h-6 w-6 text-danger hover:bg-danger/10"
-        onClick={async () => { if (!confirm('هل أنت متأكد من حذف هذا السجل؟')) return; await deleteSale(row.original.id); toast.success('تم الحذف') }}>
+        onClick={() => setConfirmDelete({ids:[row.original.id],label:'هذا السجل'})}>
         <Trash2 className="w-3 h-3"/>
       </Button>
     )},
@@ -344,7 +407,7 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
           <>
             <span className="text-xs text-primary font-medium">{selectedIds.size} محدد</span>
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-danger border-danger/30 hover:bg-danger/10"
-              onClick={async () => { const ids=[...selectedIds]; if (!confirm(`هل أنت متأكد من حذف ${ids.length} سجل؟`)) return; await Promise.all(ids.map(id=>deleteSale(id))); setSelectedIds(new Set()); toast.success(`تم حذف ${ids.length} سجل`) }}>
+              onClick={() => { const ids=[...selectedIds]; setConfirmDelete({ids,label:`${ids.length} سجل`}) }}>
               <Trash2 className="w-3 h-3"/>حذف المحدد
             </Button>
           </>
@@ -362,6 +425,18 @@ function SalesRecordsSection({ sales, products, isLoading }: { sales: Sale[]; pr
           onExportExcel={handleExport}
         />
       )}
+      <AlertDialog open={!!confirmDelete} onOpenChange={o=>!o&&setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد الحذف</AlertDialogTitle>
+            <AlertDialogDescription>هل أنت متأكد من حذف {confirmDelete?.label}؟ لا يمكن التراجع عن هذا الإجراء.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={async()=>{if(!confirmDelete)return;await Promise.all(confirmDelete.ids.map(id=>deleteSale(id)));setSelectedIds(prev=>{const n=new Set(prev);confirmDelete.ids.forEach(id=>n.delete(id));return n});toast.success(`تم حذف ${confirmDelete.label}`);setConfirmDelete(null)}}>حذف</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

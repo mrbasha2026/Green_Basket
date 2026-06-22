@@ -2,9 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { Supplier } from '@/types'
 
+const TEN_MINUTES = 10 * 60 * 1000
+
 export function useSuppliers() {
   return useQuery<Supplier[]>({
     queryKey: ['suppliers'],
+    staleTime: TEN_MINUTES,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('suppliers')

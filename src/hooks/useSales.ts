@@ -1,7 +1,12 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { mockSales } from '@/lib/mockData'
 import type { Sale } from '@/types'
+
+function invalidateSales(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ['sales'] })
+  qc.invalidateQueries({ queryKey: ['inventory'] })
+}
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
 
@@ -13,6 +18,7 @@ async function fetchAllSales(filters?: { customerId?: string; date?: string; pro
     let q = supabase
       .from('sales')
       .select('*, product:products(*), customer:customers(*)')
+      .eq('is_deleted', false)
       .order('date', { ascending: false })
       .range(start, start + PAGE - 1)
     if (filters?.customerId) q = q.eq('customer_id', filters.customerId)
@@ -61,10 +67,10 @@ export function useDeleteSale() {
   return useMutation({
     mutationFn: async (id: string) => {
       if (USE_MOCK) return
-      const { error } = await supabase.from('sales').delete().eq('id', id)
+      const { error } = await supabase.from('sales').update({ is_deleted: true }).eq('id', id)
       if (error) throw error
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['inventory'] }) },
+    onSuccess: () => invalidateSales(qc),
   })
 }
 
@@ -73,10 +79,10 @@ export function useDeleteSalesByInvoice() {
   return useMutation({
     mutationFn: async (invoiceNumber: string) => {
       if (USE_MOCK) return
-      const { error } = await supabase.from('sales').delete().eq('invoice_number', invoiceNumber)
+      const { error } = await supabase.from('sales').update({ is_deleted: true }).eq('invoice_number', invoiceNumber)
       if (error) throw error
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['inventory'] }) },
+    onSuccess: () => invalidateSales(qc),
   })
 }
 
@@ -89,21 +95,16 @@ export function useUpsertSales() {
       if (error) throw error
       return data
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales'] }); qc.invalidateQueries({ queryKey: ['inventory'] }) },
+    onSuccess: () => invalidateSales(qc),
   })
 }
 
 // ── Invoice number helpers ─────────────────────────────────────────────────────
 
 export async function nextSaleInvoiceNumber(prefix: string = 'SIM'): Promise<string> {
-  const { data } = await supabase
-    .from('sales').select('invoice_number')
-    .not('invoice_number', 'is', null)
-    .like('invoice_number', `${prefix}-%`)
-    .order('created_at', { ascending: false }).limit(1)
-  const last = data?.[0]?.invoice_number ?? `${prefix}-00000`
-  const num = parseInt(last.replace(`${prefix}-`, '')) + 1
-  return `${prefix}-${String(num).padStart(5, '0')}`
+  const { data, error } = await supabase.rpc('get_next_invoice_number', { p_prefix: prefix })
+  if (error) throw error
+  return data as string
 }
 
 // Returns existing invoice for (date + customer) OR generates a new one

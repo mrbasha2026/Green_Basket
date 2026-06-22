@@ -6,14 +6,19 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { supabase } from '@/lib/supabase'
 import { usePermission } from '@/hooks/usePermissions'
 import { useAllUsers, useUpsertUserProfile, useCreateUser, useAllRoles, useRolePermissions, useCreateRole, useDeleteRole } from '@/hooks/useRoles'
 import { useAuth } from '@/hooks/useAuth'
 import { useProducts } from '@/hooks/useProducts'
 import { useCustomers } from '@/hooks/useCustomers'
+import { fetchAllPages } from '@/lib/supabase'
+import { exportMultiSheetExcel } from '@/lib/excel'
 import { useSiteSettings, useUpsertSiteSettings } from '@/hooks/useSiteSettings'
 import { RoleEditor } from '@/components/permissions/RoleEditor'
-import { Building2, UserCog, Settings as SettingsIcon, Download, Archive, Shield, Plus, Trash2, Loader2 } from 'lucide-react'
+import { Building2, UserCog, Settings as SettingsIcon, Download, Archive, Shield, Plus, Trash2, Loader2, Clock, FileSpreadsheet } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import type { AuditLog } from '@/types'
 import { cn } from '@/lib/utils'
 
 // ── Company Settings ───────────────────────────────────────────────────────────
@@ -21,15 +26,19 @@ function CompanyTab() {
   const { data: saved } = useSiteSettings()
   const { mutateAsync: upsert, isPending } = useUpsertSiteSettings()
   const [form, setForm] = useState({ name: '', tagline: '', phone: '', address: '', tax_number: '', vat_rate: '15', currency: 'SAR', invoice_prefix_sales: 'SIM', invoice_prefix_purchases: 'PIM', invoice_prefix_sales_sheet: 'SIG', invoice_prefix_purchases_sheet: 'PIG', invoice_prefix_stocktake: 'STK', invoice_prefix_returns_sales: 'RTN-S', invoice_prefix_returns_purchases: 'RTN-P', payment_terms: '', logo: '' })
+  const [vatRequired, setVatRequired] = useState(false)
   const logoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (saved) setForm(f => ({ ...f, ...Object.fromEntries(Object.entries(saved).map(([k, v]) => [k, String(v ?? '')])) }))
+    if (saved) {
+      setForm(f => ({ ...f, ...Object.fromEntries(Object.entries(saved).map(([k, v]) => [k, String(v ?? '')])) }))
+      setVatRequired(!!saved.vat_required)
+    }
   }, [saved])
 
   async function handleSave() {
     try {
-      await upsert({ ...form, vat_rate: parseFloat(form.vat_rate) || 15 })
+      await upsert({ ...form, vat_rate: parseFloat(form.vat_rate) || 15, vat_required: vatRequired })
       toast.success('تم حفظ الإعدادات')
     } catch { toast.error('حدث خطأ') }
   }
@@ -95,6 +104,13 @@ function CompanyTab() {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1"><Label className="text-xs">نسبة ضريبة القيمة المضافة (%)</Label>
             <Input type="number" min="0" max="100" step="0.1" value={form.vat_rate} onChange={e => setForm(p => ({ ...p, vat_rate: e.target.value }))} dir="ltr" className="h-9" /></div>
+          <div className="space-y-1 flex flex-col justify-end">
+            <Label className="text-xs">الضريبة إلزامية على كل فاتورة</Label>
+            <label className="flex items-center gap-2 h-9 cursor-pointer">
+              <input type="checkbox" checked={vatRequired} onChange={e => setVatRequired(e.target.checked)} className="w-4 h-4 rounded accent-primary" />
+              <span className="text-sm">{vatRequired ? 'نعم — ض.ق.م مطبقة دائماً' : 'لا — اختياري لكل فاتورة'}</span>
+            </label>
+          </div>
           <div className="space-y-1"><Label className="text-xs">العملة</Label>
             <Select value={form.currency} onValueChange={v => v && setForm(p => ({ ...p, currency: v }))}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -475,31 +491,86 @@ function SystemTab() {
 
 // ── Backup Tab ─────────────────────────────────────────────────────────────────
 function BackupTab() {
-  const { data: products } = useProducts()
-  const { data: customers } = useCustomers()
+  const [isExporting, setIsExporting] = useState(false)
+
+  async function fetchAllData() {
+    const [products, customers, suppliers, sales, purchases, wasteLog, inventoryDaily, periods] = await Promise.all([
+      fetchAllPages((f, t) => supabase.from('products').select('*').range(f, t)),
+      fetchAllPages((f, t) => supabase.from('customers').select('*').range(f, t)),
+      fetchAllPages((f, t) => supabase.from('suppliers').select('*').range(f, t)),
+      fetchAllPages((f, t) => supabase.from('sales').select('*').eq('is_deleted', false).range(f, t)),
+      fetchAllPages((f, t) => supabase.from('purchases').select('*').eq('is_deleted', false).range(f, t)),
+      fetchAllPages((f, t) => supabase.from('waste_log').select('*').range(f, t)),
+      fetchAllPages((f, t) => supabase.from('inventory_daily').select('*').range(f, t)),
+      fetchAllPages((f, t) => supabase.from('accounting_periods').select('*').range(f, t)),
+    ])
+    return { products, customers, suppliers, sales, purchases, waste_log: wasteLog, inventory_daily: inventoryDaily, accounting_periods: periods }
+  }
 
   async function handleExportJSON() {
-    const data = { products: products ?? [], customers: customers ?? [], exported_at: new Date().toISOString() }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `greenbasket-backup-${new Date().toISOString().split('T')[0]}.json`; a.click()
-    URL.revokeObjectURL(url)
-    toast.success('تم تصدير النسخة الاحتياطية')
+    setIsExporting(true)
+    try {
+      const data = await fetchAllData()
+      const payload = { exported_at: new Date().toISOString(), ...data }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `greenbasket-backup-${new Date().toISOString().split('T')[0]}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('تم تصدير النسخة الاحتياطية (JSON)')
+    } catch { toast.error('حدث خطأ أثناء التصدير') }
+    finally { setIsExporting(false) }
+  }
+
+  async function handleExportExcel() {
+    setIsExporting(true)
+    try {
+      const data = await fetchAllData()
+      function toSheet<T extends Record<string, unknown>>(rows: T[]) {
+        if (rows.length === 0) return { headers: [] as string[], rows: [] as (string | number | null)[][] }
+        const headers = Object.keys(rows[0])
+        return { headers, rows: rows.map(r => headers.map(h => r[h] as string | number | null)) }
+      }
+      await exportMultiSheetExcel(`greenbasket-backup-${new Date().toISOString().split('T')[0]}.xlsx`, [
+        { name: 'المبيعات',          ...toSheet(data.sales) },
+        { name: 'المشتريات',         ...toSheet(data.purchases) },
+        { name: 'الأصناف',           ...toSheet(data.products) },
+        { name: 'العملاء',           ...toSheet(data.customers) },
+        { name: 'الموردون',          ...toSheet(data.suppliers) },
+        { name: 'الهدر',             ...toSheet(data.waste_log) },
+        { name: 'المخزون اليومي',    ...toSheet(data.inventory_daily) },
+        { name: 'الفترات المحاسبية', ...toSheet(data.accounting_periods) },
+      ])
+      toast.success('تم تصدير النسخة الاحتياطية (Excel)')
+    } catch { toast.error('حدث خطأ أثناء التصدير') }
+    finally { setIsExporting(false) }
   }
 
   return (
     <div className="space-y-5 max-w-lg">
       <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2"><Download className="w-4 h-4" />تصدير البيانات</h3>
-        <p className="text-xs text-muted-foreground">تصدير الأصناف والعملاء كملف JSON للنسخ الاحتياطي</p>
-        <Button variant="outline" className="gap-2" onClick={handleExportJSON}>
-          <Archive className="w-4 h-4" />تصدير نسخة احتياطية (JSON)
-        </Button>
+        <p className="text-xs text-muted-foreground">تصدير شامل لجميع بيانات النظام: مبيعات، مشتريات، أصناف، عملاء، موردون، هدر، مخزون يومي.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-2" onClick={handleExportJSON} disabled={isExporting}>
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+            {isExporting ? 'جاري التصدير...' : 'تصدير JSON'}
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={isExporting}>
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            {isExporting ? 'جاري التصدير...' : 'تصدير Excel'}
+          </Button>
+        </div>
       </div>
-      <div className="p-4 bg-warning/10 border border-warning/30 rounded-xl space-y-2">
-        <p className="text-sm font-semibold text-warning">ملاحظة</p>
-        <p className="text-xs text-muted-foreground">بيانات المبيعات والمشتريات محفوظة في Supabase ولا يمكن تصديرها بالكامل من هنا. استخدم Supabase Dashboard لتصدير جداول قاعدة البيانات كاملةً.</p>
+      <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-2">
+        <h3 className="text-sm font-semibold">سياسة الاحتفاظ بالبيانات</h3>
+        <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+          <li>البيانات المحذوفة (مبيعات / مشتريات) لا تُحذف فعلياً — تُخفى فقط (Soft Delete)</li>
+          <li>عند فتح فترة محاسبية مغلقة يُحذف رصيد الإغلاق ويحتاج إعادة الاحتساب</li>
+          <li>يُوصى بتصدير نسخة احتياطية شهرياً قبل إغلاق الفترة</li>
+        </ul>
       </div>
       <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-3">
         <h3 className="text-sm font-semibold">SQL — جدول الإعدادات في Supabase</h3>
@@ -519,24 +590,115 @@ ON CONFLICT DO NOTHING;`}
   )
 }
 
+// ── Audit Log Tab ─────────────────────────────────────────────────────────────
+const OP_LABELS: Record<string, { label: string; color: string }> = {
+  INSERT: { label: 'إضافة',  color: 'text-green-600 bg-green-50 border-green-200' },
+  UPDATE: { label: 'تعديل',  color: 'text-yellow-600 bg-yellow-50 border-yellow-200' },
+  DELETE: { label: 'حذف',    color: 'text-red-600 bg-red-50 border-red-200' },
+}
+const TABLE_LABELS: Record<string, string> = {
+  sales:     'مبيعات',
+  purchases: 'مشتريات',
+}
+
+function AuditLogTab() {
+  const { data, isLoading } = useQuery<AuditLog[]>({
+    queryKey: ['audit_log'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('audit_log')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (error) throw error
+      return data as AuditLog[]
+    },
+    staleTime: 30_000,
+  })
+
+  function formatDate(iso: string) {
+    const d = new Date(iso)
+    return d.toLocaleDateString('ar-SA', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      + ' ' + d.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function invoiceLabel(row: AuditLog): string {
+    const src = (row.new_data ?? row.old_data) as Record<string, unknown> | null
+    return (src?.invoice_number as string) ?? (src?.id as string)?.slice(0, 8) ?? '—'
+  }
+
+  function softDeletedLabel(row: AuditLog): boolean {
+    return row.operation === 'UPDATE'
+      && (row.new_data as Record<string, unknown>)?.is_deleted === true
+      && (row.old_data as Record<string, unknown>)?.is_deleted === false
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Clock className="w-4 h-4 text-muted-foreground" />
+        <h3 className="text-base font-semibold">سجل العمليات (آخر 200)</h3>
+      </div>
+      {isLoading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      ) : !data?.length ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">لا توجد سجلات بعد</p>
+      ) : (
+        <div className="border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-muted-foreground text-xs">
+              <tr>
+                <th className="text-right px-3 py-2 font-medium">التاريخ</th>
+                <th className="text-right px-3 py-2 font-medium">الجدول</th>
+                <th className="text-right px-3 py-2 font-medium">العملية</th>
+                <th className="text-right px-3 py-2 font-medium">الفاتورة</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {data.map(row => {
+                const isSoftDel = softDeletedLabel(row)
+                const op = isSoftDel
+                  ? { label: 'حذف (soft)', color: 'text-red-600 bg-red-50 border-red-200' }
+                  : (OP_LABELS[row.operation] ?? { label: row.operation, color: 'text-muted-foreground bg-muted border-border' })
+                return (
+                  <tr key={row.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap font-mono text-xs">{formatDate(row.created_at)}</td>
+                    <td className="px-3 py-2">{TABLE_LABELS[row.table_name] ?? row.table_name}</td>
+                    <td className="px-3 py-2">
+                      <span className={cn('inline-flex px-2 py-0.5 rounded-full text-xs font-medium border', op.color)}>{op.label}</span>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{invoiceLabel(row)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Settings ──────────────────────────────────────────────────────────────
-type Section = 'company' | 'users' | 'roles' | 'system' | 'backup'
+type Section = 'company' | 'users' | 'roles' | 'system' | 'backup' | 'audit_log'
 interface SidebarSection { id: Section; label: string; icon: React.ElementType; group?: string }
 
 const SECTIONS: SidebarSection[] = [
-  { id: 'company', label: 'إعدادات الشركة', icon: Building2, group: 'الإعدادات العامة' },
-  { id: 'system', label: 'إعدادات النظام', icon: SettingsIcon, group: 'الإعدادات العامة' },
-  { id: 'backup', label: 'النسخ الاحتياطي والـ SQL', icon: Archive, group: 'الإعدادات العامة' },
-  { id: 'users', label: 'إدارة المستخدمين', icon: UserCog, group: 'الصلاحيات' },
-  { id: 'roles', label: 'إدارة الأدوار', icon: Shield, group: 'الصلاحيات' },
+  { id: 'company',   label: 'إعدادات الشركة',        icon: Building2,    group: 'الإعدادات العامة' },
+  { id: 'system',    label: 'إعدادات النظام',         icon: SettingsIcon, group: 'الإعدادات العامة' },
+  { id: 'backup',    label: 'النسخ الاحتياطي والـ SQL', icon: Archive,   group: 'الإعدادات العامة' },
+  { id: 'audit_log', label: 'سجل العمليات',           icon: Clock,        group: 'الإعدادات العامة' },
+  { id: 'users',     label: 'إدارة المستخدمين',       icon: UserCog,      group: 'الصلاحيات' },
+  { id: 'roles',     label: 'إدارة الأدوار',          icon: Shield,       group: 'الصلاحيات' },
 ]
 
 const CONTENT: Record<Section, ReactNode> = {
-  company: <CompanyTab />,
-  system: <SystemTab />,
-  backup: <BackupTab />,
-  users: <UsersTab />,
-  roles: <RolesTab />,
+  company:   <CompanyTab />,
+  system:    <SystemTab />,
+  backup:    <BackupTab />,
+  audit_log: <AuditLogTab />,
+  users:     <UsersTab />,
+  roles:     <RolesTab />,
 }
 
 export default function Settings() {

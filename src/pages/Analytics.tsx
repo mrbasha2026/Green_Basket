@@ -54,10 +54,18 @@ export default function Analytics() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
   }, [today])
 
-  const { data: salesRange } = useSalesByRange(fromDate, toDate)
-  const { data: purchasesRange } = usePurchasesByRange(fromDate, toDate)
   const { data: sales12 } = useSalesByRange(twelveAgo, today)
   const { data: purchases12 } = usePurchasesByRange(twelveAgo, today)
+
+  // اشتقاق بيانات الفترة المختارة من بيانات الـ 12 شهر — يلغي طلبَين شبكيَّين
+  const salesRange = useMemo(() =>
+    (sales12 ?? []).filter(s => s.date >= fromDate && s.date <= toDate),
+    [sales12, fromDate, toDate]
+  )
+  const purchasesRange = useMemo(() =>
+    (purchases12 ?? []).filter(p => p.date >= fromDate && p.date <= toDate),
+    [purchases12, fromDate, toDate]
+  )
 
   // ── ملخص الفترة المختارة ───────────────────────────────────────────────────
   const salesTotal = useMemo(() =>

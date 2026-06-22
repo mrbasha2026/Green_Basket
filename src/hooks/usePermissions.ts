@@ -38,16 +38,21 @@ export function useCurrentUserPermissions() {
 
       const profile = await supabase
         .from('user_profiles')
-        .select('role_id')
+        .select('role_id, is_active')
         .eq('id', userId)
         .maybeSingle()
 
+      // مستخدم موقوف — لا صلاحيات بغض النظر عن الجلسة الحالية
+      if (profile.data?.is_active === false) return new Map()
+
       // إذا لم يكن للمستخدم دور، يُعامَل كمدير نظام للمستخدم الأول فقط
       if (!profile.data?.role_id) {
+        // نتحقق إذا كان هناك أي مستخدم آخر مُعيَّن له دور (النظام مُعَدّ بالفعل)
         const { count } = await supabase
           .from('user_profiles')
           .select('id', { count: 'exact', head: true })
-        if ((count ?? 0) > 1) return new Map()
+          .not('role_id', 'is', null)
+        if ((count ?? 0) > 0) return new Map()
 
         const { data: adminRoles } = await supabase
           .from('roles')

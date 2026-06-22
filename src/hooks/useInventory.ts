@@ -15,7 +15,7 @@ export function useRecalculateInventoryDaily() {
       // 2. جلب كل البيانات على دفعات لتجنب حد PostgREST الافتراضي
       const [allPurchases, allSales, allWaste, allInv] = await Promise.all([
         fetchAllPages((s, e) => supabase.from('purchases').select('product_id, date, total_weight, total_cost, cartons_qty, weight_per_carton, price_per_carton').order('date').range(s, e)),
-        fetchAllPages((s, e) => supabase.from('sales').select('product_id, date, qty_kg').order('date').range(s, e)),
+        fetchAllPages((s, e) => supabase.from('sales').select('product_id, date, qty_kg, transaction_type').order('date').range(s, e)),
         fetchAllPages((s, e) => supabase.from('waste_log').select('product_id, date, waste_kg').order('date').range(s, e)),
         fetchAllPages((s, e) => supabase.from('inventory_daily').select('product_id, date, opening_stock_kg, opening_cost_per_kg, weighted_avg_cost').order('date').range(s, e)),
       ])
@@ -58,12 +58,13 @@ export function useRecalculateInventoryDaily() {
 
           const purchasedWeight = purch.reduce((s, r) => s + (r.total_weight ?? r.cartons_qty * r.weight_per_carton), 0)
           const purchaseCost    = purch.reduce((s, r) => s + (r.total_cost  ?? r.cartons_qty * r.price_per_carton), 0)
-          const salesKg         = sales.reduce((s, r) => s + r.qty_kg, 0)
+          const salesKg         = sales.reduce((s, r) => r.transaction_type === 'مرتجع_بيع' ? s - r.qty_kg : s + r.qty_kg, 0)
           const wasteKg         = waste.reduce((s, r) => s + r.waste_kg, 0)
 
           // المخزون الافتتاحي له تكلفة حقيقية — نستخدمه كاملاً في الحساب
+          // الهالك لا يُخصم من مقام WAC — تكلفته تُحمَّل في قائمة الدخل كمصروف منفصل
           const totalValue     = prevStock * prevCost + purchaseCost
-          const availableStock = prevStock + purchasedWeight - wasteKg
+          const availableStock = prevStock + purchasedWeight
           const wac            = availableStock > 0 ? totalValue / availableStock : prevCost
           const closingStock   = Math.max(0, prevStock + purchasedWeight - salesKg - wasteKg)
 
@@ -182,19 +183,9 @@ export function useEarliestInventory() {
         const seen = new Set<string>()
         return sorted.filter(i => { if (seen.has(i.product_id)) return false; seen.add(i.product_id); return true })
       }
-      const data = await fetchAllPages<InventoryDaily>((s, e) =>
-        supabase
-          .from('inventory_daily')
-          .select('*, product:products(*)')
-          .order('date', { ascending: true })
-          .range(s, e)
-      )
-      const seen = new Set<string>()
-      return data.filter(i => {
-        if (seen.has(i.product_id)) return false
-        seen.add(i.product_id)
-        return true
-      })
+      const { data, error } = await supabase.rpc('get_earliest_inventory')
+      if (error) throw error
+      return (data ?? []) as InventoryDaily[]
     },
   })
 }
@@ -211,20 +202,9 @@ export function useInventoryUpTo(date: string) {
         const seen = new Set<string>()
         return sorted.filter(i => { if (seen.has(i.product_id)) return false; seen.add(i.product_id); return true })
       }
-      const data = await fetchAllPages<InventoryDaily>((s, e) =>
-        supabase
-          .from('inventory_daily')
-          .select('*, product:products(*)')
-          .lte('date', date)
-          .order('date', { ascending: false })
-          .range(s, e)
-      )
-      const seen = new Set<string>()
-      return data.filter(i => {
-        if (seen.has(i.product_id)) return false
-        seen.add(i.product_id)
-        return true
-      })
+      const { data, error } = await supabase.rpc('get_inventory_upto', { p_date: date })
+      if (error) throw error
+      return (data ?? []) as InventoryDaily[]
     },
   })
 }

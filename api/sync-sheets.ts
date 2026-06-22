@@ -475,12 +475,15 @@ export default async function handler(req: Request): Promise<Response> {
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
   if (error || !user) return new Response('Unauthorized', { status: 401 })
 
-  // تحقق من صلاحية sync.import (ما عدا المدير الأول بلا role)
+  // تحقق من صلاحية sync.import
   const { data: profile } = await supabaseAdmin
     .from('user_profiles')
-    .select('role_id')
+    .select('role_id, is_active')
     .eq('id', user.id)
     .maybeSingle()
+
+  // مستخدم موقوف
+  if (profile?.is_active === false) return new Response('Forbidden', { status: 403 })
 
   if (profile?.role_id) {
     const { data: perm } = await supabaseAdmin
@@ -491,6 +494,13 @@ export default async function handler(req: Request): Promise<Response> {
       .eq('action', 'import')
       .maybeSingle()
     if (!perm) return new Response('Forbidden', { status: 403 })
+  } else {
+    // لا يوجد دور — مسموح فقط إذا كان هذا هو مستخدم Bootstrap (لا يوجد أي مستخدم آخر بدور)
+    const { count } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id', { count: 'exact', head: true })
+      .not('role_id', 'is', null)
+    if ((count ?? 0) > 0) return new Response('Forbidden', { status: 403 })
   }
 
   let reqSpreadsheetId: string | undefined

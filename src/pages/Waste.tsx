@@ -9,16 +9,17 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DataTable } from '@/components/tables/DataTable'
 import { PieChart } from '@/components/charts/PieChart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import { useProducts } from '@/hooks/useProducts'
-import { useWaste, useInsertWaste } from '@/hooks/useWaste'
+import { useWaste, useInsertWaste, useWasteByRange } from '@/hooks/useWaste'
 import { useLatestPurchaseCosts } from '@/hooks/usePurchases'
 import { useAppStore } from '@/store/appStore'
-import { formatNumber, formatDate, todayISO, monthName } from '@/lib/utils'
+import { formatNumber, formatDate, todayISO, monthName, getChartStyle } from '@/lib/utils'
 import type { WasteLog } from '@/types'
 import { cn } from '@/lib/utils'
 import { exportToExcel } from '@/lib/excel'
 import { Combobox } from '@/components/ui/combobox'
-import { BarChart2, List, PieChart as PieChartIcon, Plus, ShoppingCart, TrendingUp, Package } from 'lucide-react'
+import { BarChart2, List, PieChart as PieChartIcon, Plus, ShoppingCart, TrendingUp, Package, TrendingDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { usePermission } from '@/hooks/usePermissions'
 
@@ -83,6 +84,37 @@ export default function Waste() {
     [monthlySummary]
   )
 
+  // Monthly trend — last 12 months
+  const trendFrom = useMemo(() => {
+    const d = new Date(todayISO() + 'T12:00:00')
+    d.setMonth(d.getMonth() - 11)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  }, [])
+  const { data: trendWaste } = useWasteByRange(trendFrom, todayISO())
+
+  const monthlyTrendData = useMemo(() => {
+    const map = new Map<string, { wasteKg: number; wasteCost: number }>()
+    trendWaste?.forEach(w => {
+      const key = w.date.substring(0, 7) // YYYY-MM
+      const ex = map.get(key) ?? { wasteKg: 0, wasteCost: 0 }
+      const wac = latestCosts?.[w.product_id] ?? 0
+      map.set(key, { wasteKg: ex.wasteKg + w.waste_kg, wasteCost: ex.wasteCost + w.waste_kg * wac })
+    })
+    // Generate last 12 months in order
+    const months: string[] = []
+    const now = new Date(todayISO() + 'T12:00:00')
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now)
+      d.setMonth(d.getMonth() - i)
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+    return months.map(key => {
+      const [y, m] = key.split('-')
+      const data = map.get(key) ?? { wasteKg: 0, wasteCost: 0 }
+      return { month: `${monthName(parseInt(m)).substring(0, 3)} ${y.substring(2)}`, ...data }
+    })
+  }, [trendWaste, latestCosts])
+
   const [filterProduct, setFilterProduct] = useState('')
   const [filterSource, setFilterSource] = useState('')
 
@@ -112,7 +144,7 @@ export default function Waste() {
     { accessorKey: 'source', header: 'المصدر', cell: ({ getValue }) => getValue() === 'web' ? 'يدوي' : 'Sheets' },
   ], [latestCosts])
 
-  type WasteSection = 'summary' | 'charts' | 'log'
+  type WasteSection = 'summary' | 'charts' | 'trend' | 'log'
   const [activeSection, setActiveSection] = useState<WasteSection>('summary')
 
   const totalWasteKg = monthlySummary.reduce((s, r) => s + r.waste_kg, 0)
@@ -121,6 +153,7 @@ export default function Waste() {
   const sections = [
     { id: 'summary' as WasteSection, label: 'ملخص الهدر', icon: BarChart2 },
     { id: 'charts' as WasteSection, label: 'المخططات', icon: PieChartIcon },
+    { id: 'trend' as WasteSection, label: 'الاتجاه الشهري', icon: TrendingDown },
     { id: 'log' as WasteSection, label: 'سجل الهدر', icon: List, badge: filteredWaste.length },
   ]
 
@@ -243,6 +276,71 @@ export default function Waste() {
             </Card>
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">الهدر حسب التكلفة (ر.س)</CardTitle></CardHeader>
               <CardContent>{pieDataCost.length > 0 ? <PieChart data={pieDataCost} /> : <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>}</CardContent>
+            </Card>
+          </div>
+        )}
+
+        {activeSection === 'trend' && (
+          <div className="space-y-5">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">الهدر الشهري — الكمية (كج) — آخر 12 شهر</CardTitle></CardHeader>
+              <CardContent>
+                {monthlyTrendData.every(d => d.wasteKg === 0) ? (
+                  <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    {(() => { const cs = getChartStyle(); return (
+                      <BarChart data={monthlyTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+                        <XAxis dataKey="month" tick={{ fontSize: 10, fill: cs.tickColor }} />
+                        <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} />
+                        <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} كج`, 'الهدر']} />
+                        <Bar dataKey="wasteKg" fill="#f59e0b" radius={[4, 4, 0, 0]} name="الهدر" />
+                      </BarChart>
+                    )})()}
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">تكلفة الهدر الشهرية (ر.س) — آخر 12 شهر</CardTitle></CardHeader>
+              <CardContent>
+                {monthlyTrendData.every(d => d.wasteCost === 0) ? (
+                  <p className="text-center text-muted-foreground py-10 text-sm">لا توجد بيانات بتكاليف</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    {(() => { const cs = getChartStyle(); return (
+                      <BarChart data={monthlyTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={cs.gridStroke} />
+                        <XAxis dataKey="month" tick={{ fontSize: 10, fill: cs.tickColor }} />
+                        <YAxis tick={{ fontSize: 10, fill: cs.tickColor }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                        <Tooltip contentStyle={cs.tooltipStyle} formatter={(v) => [`${formatNumber(Number(v))} ر.س`, 'التكلفة']} />
+                        <Bar dataKey="wasteCost" fill="#dc2626" radius={[4, 4, 0, 0]} name="التكلفة" />
+                      </BarChart>
+                    )})()}
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+            {/* جدول ملخص الاتجاه الشهري */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">ملخص شهري تفصيلي</CardTitle></CardHeader>
+              <CardContent>
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border bg-muted/30">{['الشهر','الهدر(كج)','التكلفة(ر.س)'].map(h => <th key={h} className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>
+                    <tbody>
+                      {monthlyTrendData.map((r, i) => (
+                        <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                          <td className="px-3 py-2 font-medium">{r.month}</td>
+                          <td className={cn('px-3 py-2 font-semibold', r.wasteKg > 0 ? 'text-warning' : 'text-muted-foreground')}>{r.wasteKg > 0 ? formatNumber(r.wasteKg) : '—'}</td>
+                          <td className={cn('px-3 py-2 font-semibold', r.wasteCost > 0 ? 'text-danger' : 'text-muted-foreground')}>{r.wasteCost > 0 ? formatNumber(r.wasteCost) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
             </Card>
           </div>
         )}

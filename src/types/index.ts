@@ -6,6 +6,7 @@ export interface Product {
   unit: string
   is_active: boolean
   sort_order: number
+  low_stock_threshold?: number
   created_at: string
   updated_at: string
 }
@@ -61,6 +62,9 @@ export interface Purchase {
   invoice_number: string | null
   supplier_ref: string | null
   transaction_type: 'شراء' | 'مرتجع_مشتريات' | null
+  vat_applied?: boolean
+  vat_amount?: number
+  is_deleted?: boolean
   created_at: string
   product?: Product
   supplier?: Supplier
@@ -79,6 +83,9 @@ export interface Sale {
   source: 'web' | 'google_sheet'
   invoice_number: string | null
   transaction_type: 'بيع' | 'مرتجع_مبيعات' | null
+  vat_applied?: boolean
+  vat_amount?: number
+  is_deleted?: boolean
   created_at: string
   product?: Product
   customer?: Customer
@@ -254,6 +261,17 @@ export interface CustomerProductPrice {
   updated_at: string
   customer?: Customer
   product?: Product
+}
+
+export interface AuditLog {
+  id: string
+  table_name: string
+  operation: 'INSERT' | 'UPDATE' | 'DELETE'
+  record_id: string | null
+  old_data: Record<string, unknown> | null
+  new_data: Record<string, unknown> | null
+  user_id: string | null
+  created_at: string
 }
 
 export interface MonthlyPLResult {

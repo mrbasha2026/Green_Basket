@@ -78,7 +78,7 @@ export function useCalculatePeriodWAC() {
           .select('product_id, total_weight, total_cost, cartons_qty, weight_per_carton, price_per_carton')
           .gte('date', from).lte('date', to),
         supabase.from('sales')
-          .select('id, product_id, qty_kg')
+          .select('id, product_id, qty_kg, transaction_type')
           .gte('date', from).lte('date', to),
         supabase.from('waste_log')
           .select('product_id, waste_kg')
@@ -133,7 +133,7 @@ export function useCalculatePeriodWAC() {
           .reduce((s, p) => s + (p.total_cost  ?? p.cartons_qty * p.price_per_carton), 0)
         const salesQty = (salesData ?? [])
           .filter(s => s.product_id === pid)
-          .reduce((s, r) => s + r.qty_kg, 0)
+          .reduce((s, r) => r.transaction_type === 'مرتجع_بيع' ? s - r.qty_kg : s + r.qty_kg, 0)
         const wasteQty = (wasteData ?? [])
           .filter(w => w.product_id === pid)
           .reduce((s, w) => s + w.waste_kg, 0)
@@ -159,35 +159,16 @@ export function useCalculatePeriodWAC() {
         }
       }
 
-      // حفظ أرصدة الإغلاق
-      if (periodCloseRows.length > 0) {
-        const { error } = await supabase
-          .from('inventory_period_close')
-          .upsert(periodCloseRows, { onConflict: 'product_id,period_year,period_month' })
-        if (error) throw error
-      }
-
-      // تحديث المبيعات على دفعات متوازية
-      const BATCH = 20
-      for (let i = 0; i < salesUpdates.length; i += BATCH) {
-        await Promise.all(
-          salesUpdates.slice(i, i + BATCH).map(u =>
-            supabase.from('sales').update({ purchase_price_per_kg: u.wac }).eq('id', u.id)
-          )
-        )
-      }
-
-      // تحديث حالة الفترة
-      await supabase.from('accounting_periods').upsert(
-        { period_year: year, period_month: month, status: 'open', wac_calculated_at: new Date().toISOString() },
-        { onConflict: 'period_year,period_month' }
-      )
-
-      // تسجيل الحدث
-      await supabase.from('accounting_period_log').insert({
-        period_year: year, period_month: month, action: 'calculate',
-        notes: `تم احتساب WAC لـ ${periodCloseRows.length} صنف، وتحديث ${salesUpdates.length} فاتورة بيع`,
+      // حفظ كل النتائج في transaction واحدة ذرية عبر RPC
+      const notes = `تم احتساب WAC لـ ${periodCloseRows.length} صنف، وتحديث ${salesUpdates.length} فاتورة بيع`
+      const { error: rpcError } = await supabase.rpc('save_period_wac', {
+        p_year:          year,
+        p_month:         month,
+        p_close_rows:    periodCloseRows,
+        p_sales_updates: salesUpdates,
+        p_notes:         notes,
       })
+      if (rpcError) throw rpcError
 
       return { products: periodCloseRows.length, sales: salesUpdates.length }
     },
@@ -228,14 +209,10 @@ export function useClosePeriod() {
         throw new Error('يجب احتساب قائمة الدخل (محاسبة التكاليف) أولاً قبل الإغلاق')
       }
 
-      await supabase.from('accounting_periods').upsert(
-        { period_year: year, period_month: month, status: 'closed', closed_at: new Date().toISOString() },
-        { onConflict: 'period_year,period_month' }
-      )
-
-      await supabase.from('accounting_period_log').insert({
-        period_year: year, period_month: month, action: 'close', notes: null,
+      const { error: rpcError } = await supabase.rpc('close_accounting_period', {
+        p_year: year, p_month: month,
       })
+      if (rpcError) throw rpcError
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounting_periods'] })
@@ -257,18 +234,10 @@ export function useOpenPeriod() {
         throw new Error(`يجب فتح ${MONTH_NAMES[nextMonth - 1]} ${nextYear} أولاً`)
       }
 
-      await supabase.from('accounting_periods').upsert(
-        { period_year: year, period_month: month, status: 'open', closed_at: null },
-        { onConflict: 'period_year,period_month' }
-      )
-
-      // حذف رصيد الإغلاق لإعادة الاحتساب لاحقاً
-      await supabase.from('inventory_period_close')
-        .delete().eq('period_year', year).eq('period_month', month)
-
-      await supabase.from('accounting_period_log').insert({
-        period_year: year, period_month: month, action: 'open', notes: null,
+      const { error: rpcError } = await supabase.rpc('open_accounting_period', {
+        p_year: year, p_month: month,
       })
+      if (rpcError) throw rpcError
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounting_periods'] })
