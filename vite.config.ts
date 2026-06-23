@@ -30,8 +30,8 @@ export default defineConfig(({ mode }) => {
           start_url: '/',
           orientation: 'portrait',
           icons: [
-            { src: '/icons/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-            { src: '/icons/icon.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+            { src: '/icons/icon.png', sizes: '192x192 512x512', type: 'image/png', purpose: 'any' },
+            { src: '/icons/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
           ],
         },
         workbox: {
