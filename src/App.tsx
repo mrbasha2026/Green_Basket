@@ -74,6 +74,7 @@ function SiteMetaSync() {
             link.rel = 'icon'
             document.head.appendChild(link)
           }
+          link.removeAttribute('type')
           link.href = s.logo
         }
       } catch {}
