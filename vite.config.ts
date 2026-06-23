@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.svg', 'icons/*.svg'],
+        includeAssets: ['favicon.svg', 'icons/*.svg', 'icons/*.png'],
         manifest: {
           name: 'GreenBasket',
           short_name: 'GB',
@@ -30,8 +30,8 @@ export default defineConfig(({ mode }) => {
           start_url: '/',
           orientation: 'portrait',
           icons: [
-            { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-            { src: '/icons/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+            { src: '/icons/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: '/icons/icon.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
         workbox: {
