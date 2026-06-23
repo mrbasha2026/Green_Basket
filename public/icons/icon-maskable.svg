@@ -1,6 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#863bff"/>
-  <g transform="translate(112, 118) scale(6)">
-    <path fill="white" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
-  </g>
+  <!-- Solid background for maskable (safe zone = inner 80%) -->
+  <rect width="512" height="512" fill="#f0fdf4"/>
+
+  <!-- Grapes (purple) -->
+  <circle cx="162" cy="228" r="26" fill="#9333ea"/>
+  <circle cx="202" cy="208" r="26" fill="#9333ea"/>
+  <circle cx="162" cy="172" r="26" fill="#7e22ce"/>
+  <circle cx="202" cy="148" r="26" fill="#7e22ce"/>
+  <circle cx="180" cy="122" r="20" fill="#6b21a8"/>
+  <path d="M 202 120 Q 210 106 220 112" stroke="#15803d" stroke-width="6" fill="none" stroke-linecap="round"/>
+
+  <!-- Banana -->
+  <path d="M 118 242 Q 155 155 238 180" stroke="#fbbf24" stroke-width="22" fill="none" stroke-linecap="round"/>
+  <path d="M 118 242 Q 153 168 236 192" stroke="#fde68a" stroke-width="9" fill="none" stroke-linecap="round"/>
+
+  <!-- Orange -->
+  <circle cx="312" cy="196" r="52" fill="#f97316"/>
+  <line x1="312" y1="144" x2="312" y2="248" stroke="#ea580c" stroke-width="3" opacity="0.4"/>
+  <line x1="260" y1="196" x2="364" y2="196" stroke="#ea580c" stroke-width="3" opacity="0.4"/>
+  <line x1="312" y1="144" x2="312" y2="130" stroke="#15803d" stroke-width="7" stroke-linecap="round"/>
+  <path d="M 312 130 Q 326 118 336 126" stroke="#15803d" stroke-width="6" fill="none" stroke-linecap="round"/>
+
+  <!-- Red apple -->
+  <ellipse cx="396" cy="220" rx="46" ry="50" fill="#ef4444"/>
+  <ellipse cx="396" cy="172" rx="9" ry="5" fill="#dc2626"/>
+  <line x1="396" y1="170" x2="396" y2="156" stroke="#92400e" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 396 162 Q 412 150 422 160" stroke="#15803d" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <ellipse cx="382" cy="192" rx="9" ry="14" fill="white" opacity="0.25" transform="rotate(-20 382 192)"/>
+
+  <!-- Basket handle -->
+  <path d="M 152 316 Q 256 200 360 316" stroke="#92400e" stroke-width="20" fill="none" stroke-linecap="round"/>
+
+  <!-- Basket rim -->
+  <rect x="112" y="306" width="288" height="24" rx="12" fill="#a16207"/>
+
+  <!-- Basket body -->
+  <path d="M 118 328 L 144 448 Q 147 460 162 460 L 350 460 Q 365 460 368 448 L 394 328 Z" fill="#d97706"/>
+
+  <!-- Basket weave horizontal -->
+  <line x1="124" y1="362" x2="388" y2="362" stroke="#92400e" stroke-width="5"/>
+  <line x1="130" y1="394" x2="382" y2="394" stroke="#92400e" stroke-width="5"/>
+  <line x1="136" y1="428" x2="376" y2="428" stroke="#92400e" stroke-width="5"/>
+
+  <!-- Basket weave vertical -->
+  <line x1="170" y1="327" x2="158" y2="460" stroke="#92400e" stroke-width="4"/>
+  <line x1="216" y1="327" x2="212" y2="460" stroke="#92400e" stroke-width="4"/>
+  <line x1="256" y1="327" x2="256" y2="460" stroke="#92400e" stroke-width="4"/>
+  <line x1="296" y1="327" x2="300" y2="460" stroke="#92400e" stroke-width="4"/>
+  <line x1="342" y1="327" x2="354" y2="460" stroke="#92400e" stroke-width="4"/>
 </svg>

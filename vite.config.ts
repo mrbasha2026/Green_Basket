@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'icons/*.svg'],
         manifest: {
-          name: 'Greenbasket',
+          name: 'GreenBasket',
           short_name: 'GB',
           description: 'نظام إدارة متجر الخضار والفاكهة',
           theme_color: '#16a34a',
