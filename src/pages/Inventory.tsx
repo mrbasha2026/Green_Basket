@@ -353,15 +353,33 @@ export default function Inventory() {
   return (
     <div className="space-y-4">
 
+      {/* Mobile top nav */}
+      <div className="md:hidden rounded-xl border border-border bg-muted/30 overflow-x-auto mb-0">
+        <div className="flex gap-1 p-2 min-w-max">
+          {sections.map(s => (
+            <button key={s.id} onClick={() => setActiveSection(s.id)}
+              className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors',
+                activeSection === s.id ? 'bg-primary text-primary-foreground'
+                : s.highlight ? 'text-warning hover:bg-warning/10'
+                : 'text-muted-foreground hover:bg-muted')}>
+              <s.icon className="w-3.5 h-3.5 shrink-0" />
+              {s.label}
+              {s.badge !== undefined && (
+                <span className={cn('text-xs px-1 rounded-full font-medium', activeSection === s.id ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary')}>{s.badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Sidebar + Content ──────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '620px' }}>
 
         {/* Sidebar */}
-        <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+        <nav className="hidden md:flex md:flex-col w-56 shrink-0 border-l border-border bg-muted/30">
           <div className="p-4 border-b border-border">
             <p className="text-sm font-bold">المخزون</p>
           </div>
-          {/* Sections grouped */}
           <div className="flex-1 p-2 overflow-y-auto space-y-3">
             {sectionGroups.map(group => (
               <div key={group}>

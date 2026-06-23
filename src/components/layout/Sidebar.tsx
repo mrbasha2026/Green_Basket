@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, TrendingUp, Package, BarChart3,
   Calculator, Trash2, RefreshCw, FileText, Settings, Leaf, LineChart, BookOpen,
-  CalendarClock, ChevronDown,
+  CalendarClock, ChevronDown, BookMarked,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -30,6 +30,7 @@ const navItems = [
   { to: '/period-management', label: 'الفترات المحاسبية', icon: CalendarClock },
   { to: '/waste', label: 'الهدر', icon: Trash2 },
   { to: '/sync', label: 'المزامنة', icon: RefreshCw },
+  { to: '/directory', label: 'الفهرس', icon: BookMarked },
   { to: '/account-statement', label: 'كشف الحساب', icon: BookOpen },
   { to: '/settings', label: 'الإعدادات', icon: Settings },
 ]

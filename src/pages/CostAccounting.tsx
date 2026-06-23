@@ -503,9 +503,27 @@ export default function CostAccounting() {
   const current = sections.find(s => s.id === activeTab)!
 
   return (
+    <>
+    {/* Mobile top nav */}
+    <div className="md:hidden rounded-xl border border-border bg-card mb-0">
+      <div className="p-2 border-b border-border"><PeriodSelector /></div>
+      <div className="overflow-x-auto bg-muted/30">
+        <div className="flex gap-1 p-2 min-w-max">
+          {sections.map(s => (
+            <button key={s.id} onClick={() => setActiveTab(s.id)}
+              className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors',
+                activeTab === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+              <s.icon className="w-3.5 h-3.5 shrink-0" />{s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+
     <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '580px' }}>
+
       {/* Sidebar */}
-      <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+      <nav className="hidden md:flex md:flex-col w-56 shrink-0 border-l border-border bg-muted/30">
         <div className="p-3 border-b border-border">
           <PeriodSelector />
         </div>
@@ -534,6 +552,7 @@ export default function CostAccounting() {
         )}
       </div>
     </div>
+    </>
   )
 }
 

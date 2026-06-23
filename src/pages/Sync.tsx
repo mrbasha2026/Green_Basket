@@ -134,6 +134,13 @@ export default function Sync() {
     { accessorKey: 'new_products_found', header: 'أصناف جديدة' },
   ]
 
+  // ── Sync progress modal ───────────────────────────────────────────────────────
+  const [syncModal, setSyncModal] = useState<{
+    open: boolean; title: string; step: string; status: 'running'|'done'|'error'; result: string
+  }>({ open: false, title: '', step: '', status: 'running', result: '' })
+
+  function closeSyncModal() { setSyncModal(s => ({ ...s, open: false })) }
+
   // ── دالة التجميع الأساسية (مع دعم تحديد نطاق زمني أو تجميع الكل) ────────────
   async function runGrouping(from?: string, to?: string) {
     // ─ مشتريات ─
@@ -220,17 +227,16 @@ export default function Sync() {
   const [isGroupingAll, setIsGroupingAll] = useState(false)
   async function handleGroupAll() {
     setIsGroupingAll(true)
+    setSyncModal({ open: true, title: 'تجميع كل الفواتير', step: 'جاري إعادة تعيين أرقام الفواتير...', status: 'running', result: '' })
     try {
-      toast.loading('جاري إعادة تعيين أرقام الفواتير...', { id: 'group-all' })
       await resetSheetInvoiceNumbers()
-      toast.loading('جاري تجميع كل الفواتير...', { id: 'group-all' })
+      setSyncModal(s => ({ ...s, step: 'جاري تجميع الفواتير...' }))
       const result = await runGrouping()
-      toast.success(
-        `تم تجميع: ${result.purchases} مشتريات، ${result.sales} مبيعات`,
-        { id: 'group-all' }
-      )
+      setSyncModal(s => ({ ...s, step: 'اكتمل التجميع بنجاح', status: 'done', result: `${result.purchases} مشتريات، ${result.sales} مبيعات` }))
+      toast.success(`تم تجميع: ${result.purchases} مشتريات، ${result.sales} مبيعات`)
     } catch (err) {
-      toast.error(`فشل التجميع: ${(err as Error).message}`, { id: 'group-all' })
+      setSyncModal(s => ({ ...s, step: 'فشل التجميع', status: 'error', result: (err as Error).message }))
+      toast.error(`فشل التجميع: ${(err as Error).message}`)
     } finally {
       setIsGroupingAll(false)
     }
@@ -264,12 +270,15 @@ export default function Sync() {
   async function handleSyncMonth(key: string) {
     const sheetId = sheetsConfig[key]
     if (!sheetId) { toast.error('أدخل Spreadsheet ID أولاً لهذا الشهر'); return }
+    setSyncModal({ open: true, title: 'مزامنة الشهر', step: 'جاري المزامنة من Google Sheets...', status: 'running', result: '' })
     try {
       const result = await triggerSync({ spreadsheetId: sheetId })
-      toast.loading('جاري تجميع الفواتير...', { id: 'sync-group' })
+      setSyncModal(s => ({ ...s, step: 'جاري تجميع الفواتير...' }))
       await groupSheetDataIntoInvoices(key)
-      showSyncResult(result, 'sync-group')
+      setSyncModal(s => ({ ...s, step: 'اكتملت المزامنة بنجاح', status: 'done', result: `${result.imported ?? 0} سجل مستورد` }))
+      showSyncResult(result, 'sync-done')
     } catch (err) {
+      setSyncModal(s => ({ ...s, step: 'فشلت المزامنة', status: 'error', result: (err as Error).message }))
       toast.error(`فشلت المزامنة: ${(err as Error).message}`)
     }
   }
@@ -278,16 +287,67 @@ export default function Sync() {
     const sheetId = sheetsConfig[key]
     if (!sheetId) { toast.error('أدخل Spreadsheet ID أولاً لهذا الشهر'); return }
     setForcingSyncKey(key)
+    setSyncModal({ open: true, title: 'تحديث كامل', step: 'جاري حذف البيانات القديمة...', status: 'running', result: '' })
     try {
-      toast.loading('جاري حذف البيانات القديمة...', { id: 'force-sync' })
       await deleteSheetData(key)
-      toast.loading('جاري إعادة المزامنة...', { id: 'force-sync' })
+      setSyncModal(s => ({ ...s, step: 'جاري المزامنة من Google Sheets...' }))
       const result = await triggerSync({ spreadsheetId: sheetId })
-      toast.loading('جاري تجميع الفواتير...', { id: 'force-sync' })
+      setSyncModal(s => ({ ...s, step: 'جاري تجميع الفواتير...' }))
       await groupSheetDataIntoInvoices(key)
-      showSyncResult(result, 'force-sync')
+      setSyncModal(s => ({ ...s, step: 'اكتمل التحديث بنجاح', status: 'done', result: `${result.imported ?? 0} سجل مستورد` }))
+      showSyncResult(result, 'force-done')
     } catch (err) {
-      toast.error(`فشلت المزامنة: ${(err as Error).message}`, { id: 'force-sync' })
+      setSyncModal(s => ({ ...s, step: 'فشل التحديث', status: 'error', result: (err as Error).message }))
+      toast.error(`فشلت المزامنة: ${(err as Error).message}`)
+    } finally {
+      setForcingSyncKey(null)
+    }
+  }
+
+  async function handleSyncAll() {
+    const configured = monthList.filter(({ key }) => sheetsConfig[key])
+    if (configured.length === 0) { toast.error('أدخل Spreadsheet ID لشهر واحد على الأقل'); return }
+    setSyncModal({ open: true, title: 'مزامنة كل الأشهر', step: 'جاري البدء...', status: 'running', result: '' })
+    let totalImported = 0
+    try {
+      for (let i = 0; i < configured.length; i++) {
+        const { key } = configured[i]
+        setSyncModal(s => ({ ...s, step: `مزامنة الشهر ${i + 1} من ${configured.length}...` }))
+        const result = await triggerSync({ spreadsheetId: sheetsConfig[key] })
+        setSyncModal(s => ({ ...s, step: `تجميع فواتير الشهر ${i + 1}...` }))
+        await groupSheetDataIntoInvoices(key)
+        totalImported += result.imported ?? 0
+      }
+      setSyncModal(s => ({ ...s, step: 'اكتملت مزامنة كل الأشهر', status: 'done', result: `${totalImported} سجل مستورد` }))
+      toast.success(`تمت مزامنة كل الأشهر — ${totalImported} سجل`)
+    } catch (err) {
+      setSyncModal(s => ({ ...s, step: 'فشلت المزامنة', status: 'error', result: (err as Error).message }))
+      toast.error(`فشلت المزامنة: ${(err as Error).message}`)
+    }
+  }
+
+  async function handleForceSyncAll() {
+    const configured = monthList.filter(({ key }) => sheetsConfig[key])
+    if (configured.length === 0) { toast.error('أدخل Spreadsheet ID لشهر واحد على الأقل'); return }
+    setSyncModal({ open: true, title: 'تحديث كامل لكل الأشهر', step: 'جاري البدء...', status: 'running', result: '' })
+    let totalImported = 0
+    try {
+      for (let i = 0; i < configured.length; i++) {
+        const { key } = configured[i]
+        setForcingSyncKey(key)
+        setSyncModal(s => ({ ...s, step: `حذف بيانات الشهر ${i + 1} من ${configured.length}...` }))
+        await deleteSheetData(key)
+        setSyncModal(s => ({ ...s, step: `مزامنة الشهر ${i + 1}...` }))
+        const result = await triggerSync({ spreadsheetId: sheetsConfig[key] })
+        setSyncModal(s => ({ ...s, step: `تجميع فواتير الشهر ${i + 1}...` }))
+        await groupSheetDataIntoInvoices(key)
+        totalImported += result.imported ?? 0
+      }
+      setSyncModal(s => ({ ...s, step: 'اكتمل التحديث لكل الأشهر', status: 'done', result: `${totalImported} سجل مستورد` }))
+      toast.success(`اكتمل التحديث — ${totalImported} سجل`)
+    } catch (err) {
+      setSyncModal(s => ({ ...s, step: 'فشل التحديث', status: 'error', result: (err as Error).message }))
+      toast.error(`فشل التحديث: ${(err as Error).message}`)
     } finally {
       setForcingSyncKey(null)
     }
@@ -360,24 +420,12 @@ export default function Sync() {
             {canImport && <div className="flex gap-2">
               <Button size="sm" variant="outline" disabled={syncing || isDeleting}
                 className="gap-1.5 h-8 text-xs"
-                onClick={async () => {
-                  const configured = monthList.filter(({ key }) => sheetsConfig[key])
-                  if (configured.length === 0) { toast.error('أدخل Spreadsheet ID لشهر واحد على الأقل'); return }
-                  for (const { key } of configured) {
-                    await handleSyncMonth(key)
-                  }
-                }}>
+                onClick={handleSyncAll}>
                 <RefreshCw className="w-3.5 h-3.5" />مزامنة الكل
               </Button>
               <Button size="sm" variant="outline" disabled={syncing || isDeleting}
                 className="gap-1.5 h-8 text-xs text-warning border-warning/30 hover:bg-warning/10"
-                onClick={async () => {
-                  const configured = monthList.filter(({ key }) => sheetsConfig[key])
-                  if (configured.length === 0) { toast.error('أدخل Spreadsheet ID لشهر واحد على الأقل'); return }
-                  for (const { key } of configured) {
-                    await handleForceSync(key)
-                  }
-                }}>
+                onClick={handleForceSyncAll}>
                 <Trash2 className="w-3.5 h-3.5" />تحديث كامل للكل
               </Button>
             </div>}
@@ -608,6 +656,49 @@ export default function Sync() {
               <Button variant="outline" onClick={() => setNewProductDialog(null)}>إلغاء</Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sync Progress Modal */}
+      <Dialog
+        open={syncModal.open}
+        onOpenChange={open => { if (!open && syncModal.status !== 'running') closeSyncModal() }}
+      >
+        <DialogContent className="max-w-sm" showCloseButton={syncModal.status !== 'running'}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {syncModal.status === 'running' && <RefreshCw className="w-4 h-4 animate-spin text-primary shrink-0" />}
+              {syncModal.status === 'done'    && <CheckCircle className="w-4 h-4 text-success shrink-0" />}
+              {syncModal.status === 'error'   && <XCircle className="w-4 h-4 text-danger shrink-0" />}
+              {syncModal.title}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium
+              ${syncModal.status === 'running' ? 'bg-primary/8 text-primary' : ''}
+              ${syncModal.status === 'done'    ? 'bg-success/10 text-success' : ''}
+              ${syncModal.status === 'error'   ? 'bg-danger/10 text-danger'  : ''}
+            `}>
+              {syncModal.step}
+            </div>
+            {syncModal.result && (
+              <p className="text-xs text-muted-foreground px-1">{syncModal.result}</p>
+            )}
+            {syncModal.status === 'running' && (
+              <div className="flex gap-1.5 px-1">
+                {[0,1,2].map(i => (
+                  <div key={i} className="h-1.5 flex-1 rounded-full bg-primary/20 overflow-hidden">
+                    <div className="h-full bg-primary rounded-full animate-pulse" style={{ animationDelay: `${i * 200}ms` }} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {syncModal.status !== 'running' && (
+            <div className="flex justify-end pt-1">
+              <Button size="sm" onClick={closeSyncModal}>إغلاق</Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

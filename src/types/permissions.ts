@@ -36,6 +36,7 @@ export const SCREEN_ACTIONS: Record<string, Action[]> = {
   'settings.users':   ['view', 'add', 'edit', 'delete'],
   'settings.roles':   ['view', 'edit'],
   sync:               ['view', 'import'],
+  directory:          ['view', 'add', 'edit', 'delete'],
 }
 
 export const SCREEN_LABELS: Record<string, string> = {
@@ -56,6 +57,7 @@ export const SCREEN_LABELS: Record<string, string> = {
   'settings.users':   'إدارة المستخدمين',
   'settings.roles':   'إدارة الأدوار',
   sync:               'المزامنة',
+  directory:          'الفهرس',
 }
 
 // قواعد التبعية: تفعيل action يجب أن يفعّل هذه الـ actions تلقائياً

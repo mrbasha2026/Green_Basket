@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+import { SCREEN_ACTIONS } from '@/types/permissions'
 import type { Action, Role, UserProfile } from '@/types/permissions'
 
 // ملف المستخدم الحالي مع دوره
@@ -38,12 +39,21 @@ export function useCurrentUserPermissions() {
 
       const profile = await supabase
         .from('user_profiles')
-        .select('role_id, is_active')
+        .select('role_id, is_active, role:roles(is_system)')
         .eq('id', userId)
         .maybeSingle()
 
       // مستخدم موقوف — لا صلاحيات بغض النظر عن الجلسة الحالية
       if (profile.data?.is_active === false) return new Map()
+
+      // مدير النظام (is_system) — يحصل على كل صلاحيات SCREEN_ACTIONS تلقائياً
+      if ((profile.data?.role as { is_system?: boolean } | null)?.is_system) {
+        const map = new Map<string, Set<Action>>()
+        for (const [screen, actions] of Object.entries(SCREEN_ACTIONS)) {
+          map.set(screen, new Set(actions as Action[]))
+        }
+        return map
+      }
 
       // إذا لم يكن للمستخدم دور، يُعامَل كمدير نظام للمستخدم الأول فقط
       if (!profile.data?.role_id) {

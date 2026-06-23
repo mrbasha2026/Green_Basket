@@ -706,9 +706,25 @@ export default function Settings() {
   const groups = [...new Set(SECTIONS.map(s => s.group ?? ''))]
 
   return (
+    <>
+    {/* Mobile top nav */}
+    <div className="md:hidden rounded-xl border border-border bg-muted/30 overflow-x-auto mb-0">
+      <div className="flex gap-1 p-2 min-w-max">
+        {SECTIONS.map(s => (
+          <button key={s.id} onClick={() => setActive(s.id)}
+            className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors',
+              active === s.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+            <s.icon className="w-3.5 h-3.5 shrink-0" />
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
+
     <div className="rounded-xl border border-border overflow-hidden bg-card flex" style={{ minHeight: '620px' }}>
+
       {/* Sidebar */}
-      <nav className="w-56 shrink-0 border-l border-border bg-muted/30 flex flex-col">
+      <nav className="hidden md:flex md:flex-col w-56 shrink-0 border-l border-border bg-muted/30">
         <div className="p-4 border-b border-border">
           <p className="text-sm font-bold">الإعدادات</p>
         </div>
@@ -732,9 +748,10 @@ export default function Settings() {
       </nav>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 overflow-auto p-6">
+      <div className="flex-1 min-w-0 overflow-auto p-4 md:p-6">
         {CONTENT[active]}
       </div>
     </div>
+    </>
   )
 }

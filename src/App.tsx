@@ -24,6 +24,7 @@ const Waste           = lazy(() => import('@/pages/Waste'))
 const Sync            = lazy(() => import('@/pages/Sync'))
 const Reports         = lazy(() => import('@/pages/Reports'))
 const Settings        = lazy(() => import('@/pages/Settings'))
+const Directory       = lazy(() => import('@/pages/Directory'))
 const Profile         = lazy(() => import('@/pages/Profile'))
 const Login           = lazy(() => import('@/pages/Login'))
 
@@ -110,6 +111,7 @@ export default function App() {
             <Route path="/customers" element={<Guard screen="customers"><Customers /></Guard>} />
             <Route path="/waste" element={<Guard screen="waste"><Waste /></Guard>} />
             <Route path="/sync" element={<Guard screen="sync"><Sync /></Guard>} />
+            <Route path="/directory" element={<Guard screen="directory"><Directory /></Guard>} />
             <Route path="/reports" element={<Guard screen="reports"><Reports /></Guard>} />
             <Route path="/settings" element={<Guard screen="settings"><Settings /></Guard>} />
             <Route path="/profile" element={<Suspense fallback={<PageFallback />}><Profile /></Suspense>} />
