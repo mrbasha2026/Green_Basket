@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import type { SiteSettingsData } from '@/hooks/useSiteSettings'
 
 export interface StocktakeSession {
   id: string
@@ -171,24 +172,110 @@ export function useApproveStocktake() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ session, items }: { session: StocktakeSession; items: StocktakeItem[] }) => {
-      // Update inventory_daily for each item that has actual_qty
       const validItems = items.filter(i => i.actual_qty !== null && i.actual_qty !== undefined)
+
+      // جلب إعدادات الجرد
+      const { data: settingsRow } = await supabase
+        .from('site_settings').select('data').eq('id', 'default').maybeSingle()
+      const settings = (settingsRow?.data ?? {}) as SiteSettingsData
+      const method    = settings.stocktake_charge_method ?? 'pct_of_diff'
+      const chargePct = (settings.stocktake_charge_pct ?? 0) / 100
+
+      // جلب آخر WAC لكل صنف قبل تاريخ الجلسة
+      const wacMap = new Map<string, number>()
+      await Promise.all(validItems.map(async item => {
+        const { data } = await supabase
+          .from('inventory_daily')
+          .select('weighted_avg_cost')
+          .eq('product_id', item.product_id)
+          .lt('date', session.date)
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        wacMap.set(item.product_id, data?.weighted_avg_cost ?? 0)
+      }))
+
+      // حساب إجمالي قيمة المخزون وإجمالي الفوارق (لطريقة pct_of_inventory)
+      let totalInvValue   = 0
+      let totalDeficit    = 0
+      const itemDeficits: { item: StocktakeItem; deficitValue: number; wac: number }[] = []
+
       for (const item of validItems) {
-        const qty = item.actual_qty!
-        await supabase.from('inventory_daily').upsert({
-          product_id: item.product_id,
-          date: session.date,
-          opening_stock_kg: qty,
-          opening_cost_per_kg: 0,
-          purchased_weight: 0,
-          purchase_cost: 0,
-          waste_kg: 0,
-          sales_kg: 0,
-          closing_stock_kg: qty,
-          weighted_avg_cost: 0,
-        }, { onConflict: 'product_id,date' })
+        const wac        = wacMap.get(item.product_id) ?? 0
+        const deficitQty = (item.system_qty ?? 0) - item.actual_qty!
+        const deficitVal = Math.max(0, deficitQty) * wac
+        totalInvValue   += (item.system_qty ?? 0) * wac
+        totalDeficit    += deficitVal
+        itemDeficits.push({ item, deficitValue: deficitVal, wac })
       }
-      // Mark session as approved
+
+      // جلب أو إنشاء فئة "فوارق جرد" في cost_categories
+      let stocktakeCategoryId: string | null = null
+      const { data: existingCat } = await supabase
+        .from('cost_categories').select('id').eq('name_ar', 'فوارق جرد').maybeSingle()
+      if (existingCat) {
+        stocktakeCategoryId = existingCat.id
+      } else {
+        const { data: newCat } = await supabase
+          .from('cost_categories')
+          .insert({ name_ar: 'فوارق جرد', name_en: 'Stocktake Discrepancy', is_active: true })
+          .select('id').single()
+        stocktakeCategoryId = newCat?.id ?? null
+      }
+
+      const sessionYear  = new Date(session.date).getFullYear()
+      const sessionMonth = new Date(session.date).getMonth() + 1
+
+      for (const { item, deficitValue, wac } of itemDeficits) {
+        const actualQty  = item.actual_qty!
+        const systemQty  = item.system_qty ?? actualQty
+        const deficitQty = Math.max(0, systemQty - actualQty)
+
+        // حساب المبلغ المُحمَّل على الصنف vs المصروف
+        let absorbedValue = 0
+        if (deficitValue > 0) {
+          if (method === 'pct_of_diff') {
+            absorbedValue = deficitValue * chargePct
+          } else {
+            // pct_of_inventory: الحد الأقصى الكلي = نسبة من إجمالي المخزون
+            const maxAbsorb = totalInvValue * chargePct
+            absorbedValue = totalDeficit > 0
+              ? Math.min(deficitValue, (deficitValue / totalDeficit) * maxAbsorb)
+              : 0
+          }
+        }
+
+        const expensedValue  = deficitValue - absorbedValue
+        // القيمة الإجمالية المتبقية بعد خصم ما سيُصرَّف
+        const remainingValue = systemQty * wac - expensedValue
+        const newWac         = actualQty > 0 ? remainingValue / actualQty : wac
+
+        await supabase.from('inventory_daily').upsert({
+          product_id:          item.product_id,
+          date:                session.date,
+          opening_stock_kg:    systemQty,
+          opening_cost_per_kg: wac,
+          purchased_weight:    0,
+          purchase_cost:       0,
+          waste_kg:            deficitQty,
+          sales_kg:            0,
+          closing_stock_kg:    actualQty,
+          weighted_avg_cost:   newWac,
+        }, { onConflict: 'product_id,date' })
+
+        // تسجيل الجزء المُصرَّف كمصروف (overhead)
+        if (expensedValue > 0 && stocktakeCategoryId) {
+          await supabase.from('overhead_entries').insert({
+            period_year:  sessionYear,
+            period_month: sessionMonth,
+            amount:       Math.round(expensedValue * 1000) / 1000,
+            category_id:  stocktakeCategoryId,
+            notes:        `فوارق جلسة جرد ${session.session_number} — ${item.product_id}`,
+          })
+        }
+      }
+
+      // اعتماد الجلسة
       const { error } = await supabase
         .from('stocktake_sessions')
         .update({ status: 'approved', updated_at: new Date().toISOString() })

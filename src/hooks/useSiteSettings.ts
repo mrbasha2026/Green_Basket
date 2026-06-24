@@ -23,6 +23,8 @@ export interface SiteSettingsData {
   fiscal_year_start?: string
   date_format?: string
   payment_terms?: string
+  stocktake_charge_method?: 'pct_of_diff' | 'pct_of_inventory'
+  stocktake_charge_pct?: number
 }
 
 const FALLBACK_KEY = 'gb_site_settings'

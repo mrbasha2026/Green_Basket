@@ -61,11 +61,11 @@ export function useRecalculateInventoryDaily() {
           const salesKg         = sales.reduce((s, r) => r.transaction_type === 'مرتجع_بيع' ? s - r.qty_kg : s + r.qty_kg, 0)
           const wasteKg         = waste.reduce((s, r) => s + r.waste_kg, 0)
 
-          // المخزون الافتتاحي له تكلفة حقيقية — نستخدمه كاملاً في الحساب
-          // الهالك لا يُخصم من مقام WAC — تكلفته تُحمَّل في قائمة الدخل كمصروف منفصل
+          // الهالك يُخصم من مقام WAC → تكلفته تُحمَّل على المخزون المتبقي (ترتفع التكلفة/كغ)
           const totalValue     = prevStock * prevCost + purchaseCost
           const availableStock = prevStock + purchasedWeight
-          const wac            = availableStock > 0 ? totalValue / availableStock : prevCost
+          const netForWac      = availableStock - wasteKg
+          const wac            = netForWac > 0 ? totalValue / netForWac : prevCost
           const closingStock   = Math.max(0, prevStock + purchasedWeight - salesKg - wasteKg)
 
           rowsToUpsert.push({

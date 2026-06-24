@@ -22,6 +22,19 @@ export function calcCostPerKg(
   return totalCost / net
 }
 
+export function computeOverheadShare(
+  method: 'revenue' | 'qty' | 'equal',
+  productShare: number,
+  total: number,
+  productCount: number,
+  totalOverhead: number,
+): number {
+  if (method === 'equal') {
+    return productCount > 0 ? totalOverhead / productCount : 0
+  }
+  return total > 0 ? (productShare / total) * totalOverhead : 0
+}
+
 export function computeProductAllocation(
   productId: string,
   revenue: number,

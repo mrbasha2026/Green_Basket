@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { mockMonthlyPL } from '@/lib/mockData'
 import type { CostAllocation, MonthlyPL } from '@/types'
-import { computeProductAllocation, computeMonthlyPL } from '@/lib/calculations'
+import { computeProductAllocation, computeMonthlyPL, computeOverheadShare } from '@/lib/calculations'
 
 const USE_MOCK = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === ''
 
@@ -113,7 +113,8 @@ export function useCalculateCostAllocation() {
           const existing = costByProduct.get(i.product_id) ?? { direct: 0, waste: 0 }
           costByProduct.set(i.product_id, {
             direct: existing.direct + Number(i.sales_kg) * Number(i.weighted_avg_cost),
-            waste: existing.waste + Number(i.waste_kg) * Number(i.weighted_avg_cost),
+            // الهدر مُحمَّل على WAC — لا يُحسب مرة أخرى كمصروف منفصل
+            waste: 0,
           })
         }
       } else {
@@ -121,27 +122,7 @@ export function useCalculateCostAllocation() {
         for (const [pid, s] of salesByProduct.entries()) {
           costByProduct.set(pid, { direct: s.purchaseCost, waste: 0 })
         }
-
-        // Latest purchase cost per product (for waste calculation)
-        const { data: purchaseData } = await supabase
-          .from('purchases').select('product_id, cost_per_kg, date')
-          .lte('date', to).order('date', { ascending: false })
-        const latestCost: Record<string, number> = {}
-        for (const p of purchaseData ?? []) {
-          if (!latestCost[p.product_id]) latestCost[p.product_id] = Number(p.cost_per_kg)
-        }
-
-        // Waste cost from waste_log
-        const { data: wasteData } = await supabase
-          .from('waste_log').select('product_id, waste_kg')
-          .gte('date', from).lte('date', to)
-        for (const w of wasteData ?? []) {
-          const existing = costByProduct.get(w.product_id) ?? { direct: 0, waste: 0 }
-          costByProduct.set(w.product_id, {
-            ...existing,
-            waste: existing.waste + Number(w.waste_kg) * (latestCost[w.product_id] ?? 0),
-          })
-        }
+        // الهدر مُحمَّل على WAC — لا تكلفة هدر منفصلة في هذا المسار أيضاً
       }
 
       // 4. Compute allocations with selected distribution method
@@ -149,15 +130,13 @@ export function useCalculateCostAllocation() {
       for (const [productId, { qty, revenue }] of salesByProduct.entries()) {
         const costs = costByProduct.get(productId) ?? { direct: 0, waste: 0 }
 
-        // Overhead share based on distMethod
-        let allocatedOverhead = 0
-        if (distMethod === 'revenue') {
-          allocatedOverhead = totalRevenue > 0 ? (revenue / totalRevenue) * totalOverhead : 0
-        } else if (distMethod === 'qty') {
-          allocatedOverhead = totalQty > 0 ? (qty / totalQty) * totalOverhead : 0
-        } else {
-          allocatedOverhead = productCount > 0 ? totalOverhead / productCount : 0
-        }
+        const allocatedOverhead = computeOverheadShare(
+          distMethod,
+          distMethod === 'qty' ? qty : revenue,
+          distMethod === 'qty' ? totalQty : totalRevenue,
+          productCount,
+          totalOverhead,
+        )
 
         const result = computeProductAllocation(
           productId, revenue, totalRevenue, allocatedOverhead,

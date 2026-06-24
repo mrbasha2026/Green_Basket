@@ -25,20 +25,28 @@ import { cn } from '@/lib/utils'
 function CompanyTab() {
   const { data: saved } = useSiteSettings()
   const { mutateAsync: upsert, isPending } = useUpsertSiteSettings()
-  const [form, setForm] = useState({ name: '', tagline: '', phone: '', address: '', tax_number: '', vat_rate: '15', currency: 'SAR', invoice_prefix_sales: 'SIM', invoice_prefix_purchases: 'PIM', invoice_prefix_sales_sheet: 'SIG', invoice_prefix_purchases_sheet: 'PIG', invoice_prefix_stocktake: 'STK', invoice_prefix_returns_sales: 'RTN-S', invoice_prefix_returns_purchases: 'RTN-P', payment_terms: '', logo: '' })
+  const [form, setForm] = useState({ name: '', tagline: '', phone: '', address: '', tax_number: '', vat_rate: '15', currency: 'SAR', invoice_prefix_sales: 'SIM', invoice_prefix_purchases: 'PIM', invoice_prefix_sales_sheet: 'SIG', invoice_prefix_purchases_sheet: 'PIG', invoice_prefix_stocktake: 'STK', invoice_prefix_returns_sales: 'RTN-S', invoice_prefix_returns_purchases: 'RTN-P', payment_terms: '', logo: '', stocktake_charge_pct: '0' })
   const [vatRequired, setVatRequired] = useState(false)
+  const [stocktakeMethod, setStocktakeMethod] = useState<'pct_of_diff' | 'pct_of_inventory'>('pct_of_diff')
   const logoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (saved) {
       setForm(f => ({ ...f, ...Object.fromEntries(Object.entries(saved).map(([k, v]) => [k, String(v ?? '')])) }))
       setVatRequired(!!saved.vat_required)
+      setStocktakeMethod(saved.stocktake_charge_method ?? 'pct_of_diff')
     }
   }, [saved])
 
   async function handleSave() {
     try {
-      await upsert({ ...form, vat_rate: parseFloat(form.vat_rate) || 15, vat_required: vatRequired })
+      await upsert({
+        ...form,
+        vat_rate: parseFloat(form.vat_rate) || 15,
+        vat_required: vatRequired,
+        stocktake_charge_method: stocktakeMethod,
+        stocktake_charge_pct: parseFloat(form.stocktake_charge_pct) || 0,
+      })
       toast.success('تم حفظ الإعدادات')
     } catch { toast.error('حدث خطأ') }
   }
@@ -120,6 +128,42 @@ function CompanyTab() {
                 <SelectItem value="EUR">يورو (EUR)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-base font-semibold mb-4">إعدادات الجرد</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1 col-span-2">
+            <Label className="text-xs">طريقة احتساب فوارق الجرد على تكلفة الصنف</Label>
+            <Select value={stocktakeMethod} onValueChange={v => v && setStocktakeMethod(v as 'pct_of_diff' | 'pct_of_inventory')}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pct_of_diff">نسبة من قيمة الفارق نفسه</SelectItem>
+                <SelectItem value="pct_of_inventory">حد أقصى — نسبة من إجمالي قيمة المخزون</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {stocktakeMethod === 'pct_of_diff'
+                ? 'مثال: فارق قيمته 100 ريال بنسبة 30% → 30 ريال تُحمَّل على تكلفة الصنف، 70 ريال تُسجَّل كمصروف'
+                : 'مثال: مخزون بقيمة 10,000 ريال بنسبة 3% → أي فارق حتى 300 ريال يُحمَّل على التكلفة، ما زاد يُسجَّل كمصروف'}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">
+              {stocktakeMethod === 'pct_of_diff' ? 'النسبة المُحمَّلة على الصنف (%)' : 'النسبة المسموح بها من المخزون (%)'}
+            </Label>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              value={form.stocktake_charge_pct}
+              onChange={e => setForm(p => ({ ...p, stocktake_charge_pct: e.target.value }))}
+              dir="ltr"
+              className="h-9"
+            />
           </div>
         </div>
       </div>
